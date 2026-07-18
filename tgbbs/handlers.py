@@ -27,6 +27,7 @@ from telegram.ext import (
 from . import art, asciiview
 from .config import FILES_DIR, Config
 from .db import DB
+from .doors import DOORS, DoorAPI
 from .render import esc, screen, status_line, trunc, ts, wrap
 
 log = logging.getLogger("tgbbs")
@@ -144,10 +145,11 @@ class BBS:
              Btn("[M] MSG BASES", callback_data="boards")],
             [Btn(mail_label, callback_data="mail:0"),
              Btn("[F] FILE AREAS", callback_data="areas")],
-            [Btn("[O] ONELINERS", callback_data="ones"),
-             Btn(chat_label, callback_data="chat")],
-            [Btn("[L] LAST CALLERS", callback_data="who"),
-             Btn("[U] USER LIST", callback_data="users:0")],
+            [Btn("[D] DOORS", callback_data="doors"),
+             Btn("[O] ONELINERS", callback_data="ones")],
+            [Btn(chat_label, callback_data="chat"),
+             Btn("[L] LAST CALLERS", callback_data="who")],
+            [Btn("[U] USER LIST", callback_data="users:0")],
         ]
         if user["level"] >= 100:
             rows[-1].append(Btn("[S] SYSOP", callback_data="sysop"))
@@ -484,6 +486,45 @@ class BBS:
         rows = [[Btn("[Q] BACK", callback_data=back)]]
         return screen(trunc(title, 24), body, status_line(user)), Kbd(rows)
 
+    # -- door games -----------------------------------------------------------
+    def scr_doors(self, user):
+        bal = self.db.credits(user["id"])
+        body = [
+            "  step into the arcade.",
+            "",
+            f"  your credits: {bal}",
+            "  earn: +5/call +2/post",
+            "        +25/upload",
+            "",
+        ]
+        rows = []
+        for i, d in enumerate(DOORS.values(), 1):
+            body.append(f"  [{i}] {trunc(d.title, 26)}")
+            body.append(f"      {trunc(d.diz, 28)}")
+            rows.append([Btn(f"[{i}] {d.title.upper()}",
+                             callback_data=f"dr:{d.key}:enter")])
+        if not DOORS:
+            body.append("  the arcade is dark.")
+        rows.append([Btn("[Q] BACK", callback_data="menu")])
+        return screen("door games", body, status_line(user)), Kbd(rows)
+
+    def _door_screen(self, user, key: str, payload: str):
+        door = DOORS.get(key)
+        if not door:
+            return self.scr_doors(user)
+        s = self.sess(user["id"])
+        s["door"], s["await"] = key, "door"
+        try:
+            title, body, rows = door.handle(DoorAPI(self.db, key), user, payload)
+        except Exception:
+            log.exception("door %s crashed on %r", key, payload)
+            return self.scr_doors(user)
+        kbd = [[Btn(lbl, callback_data=act[1:] if act.startswith("!")
+                    else f"dr:{key}:{act}")
+                for lbl, act in row] for row in rows]
+        kbd.append([Btn("[Q] LEAVE", callback_data="doors")])
+        return screen(title, body, status_line(user)), Kbd(kbd)
+
     # -- social ------------------------------------------------------------------
     def scr_ones(self, user):
         body = ["  wisdom of the wall:", ""]
@@ -758,6 +799,8 @@ class BBS:
         s["await"] = None  # any navigation aborts pending input
         if cmd != "chat":
             await self._chat_leave(user, ctx)
+        if cmd != "dr":
+            s["door"] = None
 
         try:
             if cmd == "menu":
@@ -782,6 +825,11 @@ class BBS:
                 self.db.mark_all_read(user["id"], user["level"])
                 nodelog.info("%s marked all read", user["handle"])
                 out = self.scr_main(user)
+            elif cmd == "doors":
+                out = self.scr_doors(user)
+            elif cmd == "dr":
+                out = self._door_screen(user, args[0],
+                                        ":".join(args[1:]) or "enter")
             elif cmd == "boards":
                 out = self.scr_boards(user)
             elif cmd == "board":
@@ -993,9 +1041,12 @@ class BBS:
                 out = self.scr_main(user)
         elif not user:
             return
+        elif mode == "door" and s.get("door"):
+            out = self._door_screen(user, s["door"], "text:" + text[:60])
         elif mode == "post":
             mid = self.db.post(s["ctx"]["board"], uid, text[:MAX_BODY])
             s["await"] = None
+            self.db.add_credits(uid, 2)
             nodelog.info("%s posted msg #%s to board %s",
                          user["handle"], mid, s["ctx"]["board"])
             out = self.scr_msg(user, mid)
@@ -1004,6 +1055,7 @@ class BBS:
             if orig:
                 mid = self.db.post(orig["board_id"], uid, text[:MAX_BODY],
                                    reply_to=orig["id"])
+                self.db.add_credits(uid, 2)
                 out = self.scr_msg(user, mid)
             else:
                 out = self.scr_boards(user)
@@ -1120,6 +1172,7 @@ class BBS:
             return
         fid = self.db.add_file(area_id, user["id"], doc.file_id,
                                doc.file_name or "unnamed.bin", doc.file_size or 0)
+        self.db.add_credits(user["id"], 25)
         nodelog.info("%s uploaded #%s %s (%sk) to area %s", user["handle"],
                      fid, doc.file_name, (doc.file_size or 0) // 1024, area_id)
         s["await"], s["ctx"] = "filedesc", {"area": area_id, "file": fid}

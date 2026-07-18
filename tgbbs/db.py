@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS scan_ptr (
     last_seen  INTEGER NOT NULL DEFAULT 0,  -- highest message id read
     PRIMARY KEY (user_id, board_id)
 );
+CREATE TABLE IF NOT EXISTS credits (
+    user_id    INTEGER PRIMARY KEY,
+    amount     INTEGER NOT NULL DEFAULT 100
+);
+CREATE TABLE IF NOT EXISTS door_state (
+    user_id    INTEGER NOT NULL,
+    door       TEXT NOT NULL,
+    state      TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (user_id, door)
+);
 CREATE TABLE IF NOT EXISTS feed_seen (
     key        TEXT PRIMARY KEY,             -- normalized url
     source     TEXT NOT NULL,
@@ -133,6 +143,7 @@ class DB:
         self.conn.execute(
             "UPDATE users SET last_call=?, calls=calls+1 WHERE id=?", (now(), tg_id))
         self.conn.commit()
+        self.add_credits(tg_id, 5)  # showing up pays
 
     def set_level(self, tg_id: int, level: int) -> None:
         self.conn.execute("UPDATE users SET level=? WHERE id=?", (level, tg_id))
@@ -344,6 +355,40 @@ class DB:
         self.conn.execute(
             "INSERT INTO oneliners(author_id, text, created) VALUES (?,?,?)",
             (author_id, text, now()))
+        self.conn.commit()
+
+    # -- credits + door state (the arcade economy) -----------------------------
+    def credits(self, uid: int) -> int:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO credits(user_id) VALUES (?)", (uid,))
+        self.conn.commit()
+        return self.conn.execute(
+            "SELECT amount FROM credits WHERE user_id=?", (uid,)).fetchone()["amount"]
+
+    def add_credits(self, uid: int, delta: int) -> int:
+        self.credits(uid)  # ensure the row
+        self.conn.execute(
+            "UPDATE credits SET amount=MAX(0, amount+?) WHERE user_id=?",
+            (delta, uid))
+        self.conn.commit()
+        return self.credits(uid)
+
+    def top_credits(self, limit: int = 10):
+        return self.conn.execute(
+            "SELECT u.handle, c.amount FROM credits c JOIN users u ON u.id=c.user_id "
+            "ORDER BY c.amount DESC LIMIT ?", (limit,)).fetchall()
+
+    def door_state(self, uid: int, door: str) -> str:
+        r = self.conn.execute(
+            "SELECT state FROM door_state WHERE user_id=? AND door=?",
+            (uid, door)).fetchone()
+        return r["state"] if r else "{}"
+
+    def save_door_state(self, uid: int, door: str, state: str) -> None:
+        self.conn.execute(
+            "INSERT INTO door_state(user_id, door, state) VALUES (?,?,?) "
+            "ON CONFLICT(user_id, door) DO UPDATE SET state=excluded.state",
+            (uid, door, state))
         self.conn.commit()
 
     # -- news feed dedup -----------------------------------------------------

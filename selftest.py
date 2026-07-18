@@ -114,6 +114,29 @@ def main() -> None:
     text, _ = bbs.scr_main(user)  # badge gone when nothing unread
     assert "NEWSCAN (" not in str(bbs.scr_main(user)[1].inline_keyboard[0][0].text)
 
+    # doors: discovery, casino round trip, credit accounting
+    import random
+
+    from tgbbs.doors import DOORS
+    assert "casino" in DOORS
+    text, kbd = bbs.scr_doors(user)
+    assert "HI-LO CASINO" in str(kbd.inline_keyboard)
+    bal0 = db.credits(uid)
+    random.seed(1994)
+    text, kbd = bbs._door_screen(user, "casino", "bet:25")
+    assert "the dealer flips" in text and "HIGHER" in str(kbd.inline_keyboard)
+    text, _ = bbs._door_screen(user, "casino", "hi")
+    assert ("YOU WIN" in text) or ("house" in text)
+    bal1 = db.credits(uid)
+    assert abs(bal1 - bal0) == 25, (bal0, bal1)
+    print("===== casino result " + "=" * 46)
+    print(strip_pre(text))
+    # unknown payloads fall back to the lobby, crashes fall back to menu
+    text, _ = bbs._door_screen(user, "casino", "text:gibberish")
+    assert "H I - L O" in text
+    text, _ = bbs._door_screen(user, "nosuchdoor", "enter")
+    assert "DOOR GAMES" in text
+
     # typed hotkeys mirror the buttons of the current screen
     _, kbd = bbs.scr_main(sysop)
     keys = bbs._hotkeys(kbd)

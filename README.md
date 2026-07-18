@@ -64,6 +64,11 @@ copy .env.example .env      # then paste your token from @BotFather
   pointers per board; the menu badge shows how much is waiting, and
   the loop steps through every new message across all your boards —
   `[N]` next, `[S]` skip base, `[R]` reply, `[A]` mark all read.
+- **Door games** (`[D]`): drop-in turn-based modules with persistent
+  state and a board-wide credit economy (earn +5/call, +2/post,
+  +25/upload). Ships with the **HI-LO CASINO** — bet, guess, ties go
+  to the house, leaderboard of high rollers. Write your own door in
+  ~50 lines: see `tgbbs/doors/__init__.py`.
 - **Chat pit** (`[C]`): live multi-node chat. Everyone currently in the
   pit sees new lines appear on their terminal in real time; joins and
   leaves are announced. The main menu shows how many are chatting.
@@ -152,6 +157,6 @@ Code layout: `tgbbs/config.py` (env), `db.py` (SQLite schema + queries),
 
 ## Roadmap ideas
 
-- door games API (simple turn-based modules)
+- more doors (LORD-style daily-turns dungeon?)
 - Mini App front-end with a real CRT terminal look
 - QWK-style export / federation between boards
