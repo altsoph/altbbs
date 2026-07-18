@@ -137,6 +137,37 @@ def main() -> None:
     text, _ = bbs._door_screen(user, "nosuchdoor", "enter")
     assert "DOOR GAMES" in text
 
+    # slots: a pull moves credits and draws reels
+    assert "slots" in DOORS and "dragon" in DOORS and "gallows" in DOORS
+    b0 = db.credits(uid)
+    text, _ = bbs._door_screen(user, "slots", "bet:10")
+    assert "┌───┬───┬───┐" in text and db.credits(uid) != b0
+
+    # dragon: fight until something gives; state persists
+    text, _ = bbs._door_screen(user, "dragon", "enter")
+    assert "fights left today: 8" in text
+    text, kbd = bbs._door_screen(user, "dragon", "fight")
+    assert "on the stairs you meet" in text
+    for _i in range(60):
+        text, _ = bbs._door_screen(user, "dragon", "atk")
+        if "DRAGON'S TOWER" in text.upper() and "you" in text:
+            if "slew" in text or "DIED" in text:
+                break
+    else:
+        raise AssertionError("dragon combat never resolved")
+    print("===== dragon outcome " + "=" * 45)
+    print(strip_pre(text))
+
+    # gallows: guessing a present letter marks it, wrong letter swings rope
+    text, _ = bbs._door_screen(user, "gallows", "new")
+    import json as _json
+    gw = _json.loads(db.door_state(uid, "gallows"))["word"]
+    text, _ = bbs._door_screen(user, "gallows", f"text:{gw[0]}")
+    assert "it's there!" in text or "SAVED" in text
+    text, _ = bbs._door_screen(user, "gallows", f"text:{gw}")
+    assert "SAVED" in text  # full-word guess wins
+    assert _json.loads(db.door_state(uid, "gallows"))["wins"] == 1
+
     # typed hotkeys mirror the buttons of the current screen
     _, kbd = bbs.scr_main(sysop)
     keys = bbs._hotkeys(kbd)

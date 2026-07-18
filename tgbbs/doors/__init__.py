@@ -55,6 +55,14 @@ class DoorAPI:
     def top(self, limit: int = 10):
         return self._db.top_credits(limit)
 
+    def states(self) -> list[tuple[str, dict]]:
+        """(handle, state) for every user who has played this door."""
+        rows = self._db.conn.execute(
+            "SELECT u.handle, ds.state FROM door_state ds "
+            "JOIN users u ON u.id=ds.user_id WHERE ds.door=?",
+            (self._key,)).fetchall()
+        return [(r["handle"], json.loads(r["state"])) for r in rows]
+
 
 def _load_doors() -> dict:
     doors = {}
