@@ -54,6 +54,10 @@ def main() -> None:
         "areas": bbs.scr_areas(user),
         "area": bbs.scr_area(user, 1, 0),
         "file": bbs.scr_file(user, fid),
+        "file_sysop": bbs.scr_file(sysop, fid),
+        "upload": bbs.scr_upload(user, db.area(1)),
+        "del_confirm": bbs.scr_del_confirm(sysop, db.file(fid)),
+        "move": bbs.scr_move(sysop, db.file(fid)),
         "ones": bbs.scr_ones(user),
         "who": bbs.scr_who(user),
         "users": bbs.scr_users(user, 0),
@@ -76,6 +80,21 @@ def main() -> None:
     # sysop board is invisible in scr_boards for a normal user
     text, _ = bbs.scr_boards(user)
     assert "sysop office" not in text
+
+    # file control: sysop sees delete/move, uploader sees diz edit, others none
+    t, k = bbs.scr_file(sysop, fid)
+    assert any("delx" in (b.callback_data or "") for r in k.inline_keyboard for b in r)
+    t, k = bbs.scr_file(user, fid)  # phreak IS the uploader
+    flat = [b.callback_data or "" for r in k.inline_keyboard for b in r]
+    assert any("ediz" in c for c in flat) and not any("delx" in c for c in flat)
+
+    # move + delete round trip
+    db.move_file(fid, 2)
+    assert db.file(fid)["area_id"] == 2
+    db.move_file(fid, 1)
+    tmp_fid = db.add_file(1, 2, "tg-tmp", "junk.bin", 10)
+    db.delete_file(tmp_fid)
+    assert db.file(tmp_fid) is None
 
     # ascii viewer: generated gradient image -> ascii lines that fit a screen
     from io import BytesIO

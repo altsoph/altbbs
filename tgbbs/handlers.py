@@ -268,9 +268,7 @@ class BBS:
         n = self.db.area_file_count(area_id)
         ps = self.cfg.page_size
         fs = self.db.area_files(area_id, ps, page * ps)
-        body = [f"  «{trunc(a['name'], 24)}»  {n} files",
-                "  to upload: just send the bot",
-                "  a document while you are here", ""]
+        body = [f"  «{trunc(a['name'], 24)}»  {n} files", ""]
         rows = []
         if not fs:
             body.append("  no files yet. upload one!")
@@ -288,8 +286,27 @@ class BBS:
             nav.append(Btn("NEXT »", callback_data=f"area:{area_id}:{page+1}"))
         if nav:
             rows.append(nav)
-        rows.append([Btn("[Q] BACK", callback_data="areas")])
+        rows.append([Btn("[U] UPLOAD", callback_data=f"upl:{area_id}"),
+                     Btn("[Q] BACK", callback_data="areas")])
         return screen(a["name"], body, status_line(user)), Kbd(rows)
+
+    def scr_upload(self, user, area):
+        body = [
+            f"  target: «{trunc(area['name'], 22)}»",
+            "",
+            "  the node is ready to receive.",
+            "",
+            "  send any DOCUMENT (as file,",
+            "  not photo) to this chat now",
+            "  and it lands in this area.",
+            "",
+            "  you'll be asked for a",
+            "  FILE_ID.DIZ description after.",
+            "",
+            "  ▄▄▄ awaiting carrier ▄▄▄",
+        ]
+        rows = [[Btn("[A] ABORT", callback_data=f"area:{area['id']}:0")]]
+        return screen("upload", body, status_line(user)), Kbd(rows)
 
     def scr_file(self, user, file_id: int):
         f = self.db.file(file_id)
@@ -312,8 +329,37 @@ class BBS:
             top.append(Btn("[V] VIEW ASCII", callback_data=f"view:{f['id']}"))
         elif asciiview.is_text_name(f["name"]):
             top.append(Btn("[V] PREVIEW", callback_data=f"txt:{f['id']}:0"))
-        rows = [top, [Btn("[Q] BACK", callback_data=f"area:{f['area_id']}:0")]]
+        rows = [top]
+        if user["level"] >= 100:
+            rows.append([Btn("[X] DELETE", callback_data=f"delx:{f['id']}"),
+                         Btn("[M] MOVE", callback_data=f"mv:{f['id']}"),
+                         Btn("[E] DIZ", callback_data=f"ediz:{f['id']}")])
+        elif user["id"] == f["uploader_id"]:
+            rows.append([Btn("[E] EDIT DIZ", callback_data=f"ediz:{f['id']}")])
+        rows.append([Btn("[Q] BACK", callback_data=f"area:{f['area_id']}:0")])
         return screen("file info", body, status_line(user)), Kbd(rows)
+
+    def scr_del_confirm(self, user, f):
+        body = [
+            f"  file : #{f['id']} {trunc(f['name'], 20)}",
+            f"  from : {f['handle']}",
+            "",
+            "  remove this file from the",
+            "  board? (the record is gone,",
+            "  the bytes stay on telegram)",
+        ]
+        rows = [[Btn("[Y] YES, NUKE IT", callback_data=f"delyes:{f['id']}"),
+                 Btn("[N] KEEP", callback_data=f"file:{f['id']}")]]
+        return screen("confirm delete", body, status_line(user)), Kbd(rows)
+
+    def scr_move(self, user, f):
+        body = [f"  moving #{f['id']} {trunc(f['name'], 18)}",
+                "  pick the target area:"]
+        rows = [[Btn(f"[{a['id']}] {a['name'].upper()}",
+                     callback_data=f"mvto:{f['id']}:{a['id']}")]
+                for a in self.db.areas(user["level"]) if a["id"] != f["area_id"]]
+        rows.append([Btn("[Q] CANCEL", callback_data=f"file:{f['id']}")])
+        return screen("move file", body, status_line(user)), Kbd(rows)
 
     # -- chat pit (multi-node teleconference) -----------------------------------
     def scr_chat(self, user):
@@ -418,6 +464,10 @@ class BBS:
             "  /ban handle   /unban handle",
             "  /invite tg_user_id",
             "  /fetchnews (run wire now)",
+            "",
+            "  file control lives on each",
+            "  file's info screen:",
+            "  [X] delete [M] move [E] diz",
             "",
             f"  system is {'OPEN' if self.cfg.new_users_open else 'CLOSED (invite)'}",
         ]
@@ -709,6 +759,49 @@ class BBS:
             elif cmd == "txt":
                 out = await self._preview_file(ctx, user,
                                                int(args[0]), int(args[1]))
+            elif cmd == "upl":
+                a = self.db.area(int(args[0]))
+                if a and a["min_level"] <= user["level"]:
+                    s["ctx"]["area"] = a["id"]
+                    out = self.scr_upload(user, a)
+                else:
+                    out = self.scr_areas(user)
+            elif cmd == "delx" and user["level"] >= 100:
+                f = self.db.file(int(args[0]))
+                out = self.scr_del_confirm(user, f) if f else self.scr_areas(user)
+            elif cmd == "delyes" and user["level"] >= 100:
+                f = self.db.file(int(args[0]))
+                if f:
+                    self.db.delete_file(f["id"])
+                    nodelog.info("%s DELETED file #%s %s",
+                                 user["handle"], f["id"], f["name"])
+                    out = self.scr_area(user, f["area_id"], 0)
+                else:
+                    out = self.scr_areas(user)
+            elif cmd == "mv" and user["level"] >= 100:
+                f = self.db.file(int(args[0]))
+                out = self.scr_move(user, f) if f else self.scr_areas(user)
+            elif cmd == "mvto" and user["level"] >= 100:
+                f = self.db.file(int(args[0]))
+                a = self.db.area(int(args[1]))
+                if f and a:
+                    self.db.move_file(f["id"], a["id"])
+                    nodelog.info("%s moved file #%s to area %s",
+                                 user["handle"], f["id"], a["name"])
+                    out = self.scr_file(user, f["id"])
+                else:
+                    out = self.scr_areas(user)
+            elif cmd == "ediz":
+                f = self.db.file(int(args[0]))
+                if f and (user["level"] >= 100 or user["id"] == f["uploader_id"]):
+                    s["await"] = "filedesc"
+                    s["ctx"] = {"area": f["area_id"], "file": f["id"]}
+                    out = self.scr_input(user, "edit file_id.diz", [
+                        f"  file: {trunc(f['name'], 22)}",
+                        "", "  type the new description:"],
+                        back=f"file:{f['id']}")
+                else:
+                    out = self.scr_areas(user)
             elif cmd == "chat":
                 if not s.get("chat"):
                     s["chat"] = True

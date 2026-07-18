@@ -277,6 +277,15 @@ class DB:
         self.conn.execute("UPDATE files SET descr=? WHERE id=?", (descr, file_id))
         self.conn.commit()
 
+    def delete_file(self, file_id: int) -> None:
+        self.conn.execute("DELETE FROM files WHERE id=?", (file_id,))
+        self.conn.commit()
+
+    def move_file(self, file_id: int, area_id: int) -> None:
+        self.conn.execute(
+            "UPDATE files SET area_id=? WHERE id=?", (area_id, file_id))
+        self.conn.commit()
+
     def bump_downloads(self, file_id: int) -> None:
         self.conn.execute(
             "UPDATE files SET downloads=downloads+1 WHERE id=?", (file_id,))
