@@ -1,11 +1,11 @@
-# TG*BBS — an old-school BBS inside Telegram
+# altBBS — an old-school BBS inside Telegram
 
 ```
-▀▛▀▘▄▀▀▄      ▛▀▀▄ ▛▀▀▄ ▄▀▀▀▄
- ▌  ▌ ▄▄  ▄▀▄ ▙▄▄▀ ▙▄▄▀ ▀▄▄
- ▌  ▝▄▄▛  ▀▄▀ ▌  ▐ ▌  ▐ ▄  ▝▌
-▄▙▄  ▄▄▄▄▄▄▄▄▄▙▄▄▀▄▙▄▄▀▄▝▄▄▄▀
-     ▓▒░ CARRIER DETECTED ░▒▓
+        █   █   ▛▀▀▄ ▛▀▀▄ ▄▀▀▀▄
+   ▄▀▀▄ █  ▀█▀  ▙▄▄▀ ▙▄▄▀ ▀▄▄
+   █▄▄█ █▄  █▄  ▌  ▐ ▌  ▐ ▄  ▝▌
+   ▄▄▄▄▄▄▄▄▄▄▄▄▄▙▄▄▀▄▙▄▄▀▄▝▄▄▄▀
+      ▓▒░ CARRIER DETECTED ░▒▓
 ```
 
 A multiuser bulletin board system that lives in a Telegram bot: message
@@ -72,7 +72,7 @@ copy .env.example .env      # then paste your token from @BotFather
 | var             | default                   | meaning                       |
 |-----------------|---------------------------|-------------------------------|
 | `BBS_BOT_TOKEN` | —                         | bot token (required)          |
-| `BBS_NAME`      | `MIDNIGHT TOWER`          | system name                   |
+| `BBS_NAME`      | `altBBS`                  | system name                   |
 | `BBS_TAGLINE`   | `est. 2026 * 34 cols ...` | shown around the place        |
 | `BBS_NEW_USERS` | `open`                    | `closed` = invite-only        |
 

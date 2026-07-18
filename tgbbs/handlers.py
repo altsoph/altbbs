@@ -73,8 +73,15 @@ class BBS:
         return u
 
     # ═════════════════════════ SCREENS ═══════════════════════════════════
-    def scr_welcome(self):
-        return screen("carrier detected", art.WELCOME, logo=True), None
+    def scr_welcome(self, note: str = "  type your handle now:"):
+        body = [
+            trunc(f"  you have reached {self.cfg.bbs_name},", art.WIDTH),
+            "  a private system inside the",
+            "  telegram network.",
+            "",
+            trunc(f"  * {self.cfg.tagline} *", art.WIDTH),
+        ] + art.WELCOME_LOGIN + [note, "  █"]
+        return screen("carrier detected", body, logo=True), None
 
     def scr_main(self, user):
         st = self.db.stats()
@@ -554,9 +561,7 @@ class BBS:
             elif not HANDLE_RE.match(text):
                 out = self.scr_welcome()
             elif self.db.user_by_handle(text):
-                w = list(art.WELCOME)
-                w[-2] = "  handle taken! try another:"
-                out = (screen("carrier detected", w, logo=True), None)
+                out = self.scr_welcome("  handle taken! try another:")
             else:
                 user = self.db.create_user(uid, text)
                 s["await"] = None

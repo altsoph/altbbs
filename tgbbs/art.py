@@ -2,12 +2,12 @@
 
 WIDTH = 34
 
-# ── logo: "TG*BBS" in half-block style ──────────────────────────────────
+# ── logo: "altBBS" in half-block style ──────────────────────────────────
 LOGO = [
-    "▀▛▀▘▄▀▀▄      ▛▀▀▄ ▛▀▀▄ ▄▀▀▀▄",
-    " ▌  ▌ ▄▄  ▄▀▄ ▙▄▄▀ ▙▄▄▀ ▀▄▄  ",
-    " ▌  ▝▄▄▛  ▀▄▀ ▌  ▐ ▌  ▐ ▄  ▝▌",
-    "▄▙▄  ▄▄▄▄▄▄▄▄▄▙▄▄▀▄▙▄▄▀▄▝▄▄▄▀",
+    "        █   █   ▛▀▀▄ ▛▀▀▄ ▄▀▀▀▄",
+    "   ▄▀▀▄ █  ▀█▀  ▙▄▄▀ ▙▄▄▀ ▀▄▄  ",
+    "   █▄▄█ █▄  █▄  ▌  ▐ ▌  ▐ ▄  ▝▌",
+    "   ▄▄▄▄▄▄▄▄▄▄▄▄▄▙▄▄▀▄▙▄▄▀▄▝▄▄▄▀",
 ]
 
 BAR = "░▒▓█▓▒░" * 5            # gradient bar, cut to width
@@ -28,18 +28,11 @@ LOGOFF = [
     "",
 ]
 
-WELCOME = [
-    "  you have reached a private",
-    "  system operating inside the",
-    "  telegram network.",
-    "",
-    "  * 1 node * 34 cols * ascii *",
+WELCOME_LOGIN = [
     "",
     "  to log in, choose a HANDLE",
     "  (2-16 chars: a-z 0-9 . _ -)",
     "",
-    "  type your handle now:",
-    "  █",
 ]
 
 

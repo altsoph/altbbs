@@ -23,7 +23,7 @@ def _load_dotenv(path: Path) -> None:
 @dataclass
 class Config:
     token: str = ""
-    bbs_name: str = "MIDNIGHT TOWER"
+    bbs_name: str = "altBBS"
     tagline: str = "est. 2026 * 34 cols * node 1"
     new_users_open: bool = True
     width: int = 34               # screen width in monospace columns
