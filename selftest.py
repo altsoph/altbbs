@@ -175,6 +175,15 @@ def main() -> None:
     _, kbd = bbs.scr_board(user, 1, 0)
     keys = bbs._hotkeys(kbd)
     assert keys["P"] == "post:1" and keys["Q"] == "boards"
+    # web_app buttons can't be typed: W routes to the launcher screen
+    bbs.cfg.web_url = "https://example.test"
+    keys = bbs._hotkeys(bbs.scr_main(sysop)[1])
+    assert keys["W"] == "crt"
+    text, k = bbs.scr_crt(sysop)
+    assert "JACK IN" in str(k.inline_keyboard) and "one tap away" in text
+    bbs.cfg.web_url = ""
+    text, _ = bbs.scr_crt(sysop)
+    assert "offline" in text
 
     # ascii viewer: generated gradient image -> ascii lines that fit a screen
     from io import BytesIO

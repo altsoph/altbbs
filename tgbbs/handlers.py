@@ -85,7 +85,12 @@ class BBS:
             for b in row:
                 label = b.text or ""
                 if not b.callback_data:
-                    continue  # web_app buttons have no hotkey action
+                    # web_app buttons can't be triggered by typing (telegram
+                    # needs a real tap) -- route the letter to the launcher
+                    m = re.match(r"\[(\w)\]", label)
+                    if m and b.web_app:
+                        keys[m.group(1).upper()] = "crt"
+                    continue
                 m = re.match(r"\[(\w)\]", label)
                 if m:
                     keys[m.group(1).upper()] = b.callback_data
@@ -515,6 +520,27 @@ class BBS:
         rows = [[Btn("[Q] BACK", callback_data=back)]]
         return screen(trunc(title, 24), body, status_line(user)), Kbd(rows)
 
+    # -- CRT terminal launcher ---------------------------------------------
+    def scr_crt(self, user):
+        if not self.cfg.web_url:
+            body = ["  the CRT terminal is offline.",
+                    "  (sysop: run tunnel.ps1 and", "  restart the bot)"]
+            rows = [[Btn("[Q] BACK", callback_data="menu")]]
+        else:
+            body = [
+                "  the CRT terminal is a mini",
+                "  app. telegram only launches",
+                "  those from a real button tap,",
+                "  so here it is -- one tap away:",
+                "",
+                "  ▄▀ phosphor · scanlines ▀▄",
+                "  ▀▄ curvature · bloom    ▄▀",
+            ]
+            rows = [[Btn("░▒▓ JACK IN ▓▒░",
+                         web_app=WebAppInfo(url=self.cfg.web_url))],
+                    [Btn("[Q] BACK", callback_data="menu")]]
+        return screen("crt terminal", body, status_line(user)), Kbd(rows)
+
     # -- door games -----------------------------------------------------------
     def scr_doors(self, user):
         bal = self.db.credits(user["id"])
@@ -854,6 +880,8 @@ class BBS:
                 self.db.mark_all_read(user["id"], user["level"])
                 nodelog.info("%s marked all read", user["handle"])
                 out = self.scr_main(user)
+            elif cmd == "crt":
+                out = self.scr_crt(user)
             elif cmd == "doors":
                 out = self.scr_doors(user)
             elif cmd == "dr":
@@ -1031,7 +1059,13 @@ class BBS:
         if not mode:
             # typed hotkey acts like pressing the matching button
             if user and len(text) == 1:
-                data = (s.get("keys") or {}).get(text.upper())
+                keys = s.get("keys")
+                if not keys:
+                    # fresh session (bot restarted): fall back to the main
+                    # menu map so letters never silently dead-end
+                    keys = self._hotkeys(self.scr_main(user)[1])
+                    s["keys"] = keys
+                data = keys.get(text.upper())
                 if data:
                     try:
                         await update.message.delete()
