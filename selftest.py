@@ -158,9 +158,29 @@ def main() -> None:
     print("===== dragon outcome " + "=" * 45)
     print(strip_pre(text))
 
+    # trek: fresh mission, LRS, shields, state persists, resign loses
+    import json as _json
+    assert "trek" in DOORS
+    text, kbd = bbs._door_screen(user, "trek", "enter")
+    assert "SUPER STAR TREK" in text
+    text, kbd = bbs._door_screen(user, "trek", "new")
+    assert "final frontier" in text and "Command (1-6" in text
+    st = _json.loads(db.door_state(uid, "trek"))
+    assert "game" in st and st["game"]["fsm_state"] == "main_cmd_answer"
+    text, _ = bbs._door_screen(user, "trek", "cmd:5")   # shields
+    if "Energy to shields" in text:                     # not killed en route
+        text, _ = bbs._door_screen(user, "trek", "cmd:1000")
+    st = _json.loads(db.door_state(uid, "trek"))
+    if "game" in st:                                    # still flying: resign
+        text, _ = bbs._door_screen(user, "trek", "cmd:6")
+        assert "GAME OVER" in text
+    st = _json.loads(db.door_state(uid, "trek"))
+    assert "game" not in st and st.get("losses", 0) >= 1
+    print("===== trek lobby " + "=" * 49)
+    print(strip_pre(bbs._door_screen(user, "trek", "enter")[0]))
+
     # gallows: guessing a present letter marks it, wrong letter swings rope
     text, _ = bbs._door_screen(user, "gallows", "new")
-    import json as _json
     gw = _json.loads(db.door_state(uid, "gallows"))["word"]
     text, _ = bbs._door_screen(user, "gallows", f"text:{gw[0]}")
     assert "it's there!" in text or "SAVED" in text
