@@ -158,11 +158,15 @@ work; downloads arrive in your Telegram chat.
 
 Setup (keeps the no-open-ports story — the tunnel is outbound-only):
 
-1. The bot serves the terminal on `127.0.0.1:8737` (never exposed).
-2. `cloudflared tunnel --url http://localhost:8737` — prints a random
-   `https://….trycloudflare.com` URL.
-3. Put it in `.env` as `BBS_WEB_URL=…` and restart the bot.
-4. A `[W] CRT TERMINAL` button appears on the main menu.
+1. Install cloudflared: `winget install Cloudflare.cloudflared`
+2. `powershell -ExecutionPolicy Bypass -File tunnel.ps1` — starts the
+   tunnel detached, waits for the URL, and writes `BBS_WEB_URL` into
+   `.env` for you. (Manually: `cloudflared tunnel --url
+   http://localhost:8737` and paste the URL yourself.)
+3. Restart the bot — a `[W] CRT TERMINAL` button appears on the main
+   menu. The bot serves the terminal on `127.0.0.1:8737` only; the
+   tunnel is the sole public face. Rerun `tunnel.ps1` after a reboot
+   (quick-tunnel URLs are ephemeral).
 
 Security: the page authenticates with Telegram-signed `initData`
 (HMAC over the bot token), so a caller can only ever be their own BBS
