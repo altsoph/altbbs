@@ -72,20 +72,18 @@ def validate_init_data(init_data: str, token: str) -> int | None:
         return None
 
 
-def _make_process_request(page: bytes):
-    def process_request(connection, request):
-        path = request.path.split("?", 1)[0]
-        if path == "/ws":
-            return None  # proceed with the websocket handshake
-        headers = Headers()
-        if path in ("/", "/index.html"):
-            headers["Content-Type"] = "text/html; charset=utf-8"
-            headers["Cache-Control"] = "no-store"
-            return Response(HTTPStatus.OK, "OK", headers, page)
-        headers["Content-Type"] = "text/plain"
-        return Response(HTTPStatus.NOT_FOUND, "Not Found", headers, b"404")
-
-    return process_request
+def _process_request(connection, request):
+    path = request.path.split("?", 1)[0]
+    if path == "/ws":
+        return None  # proceed with the websocket handshake
+    headers = Headers()
+    if path in ("/", "/index.html"):
+        headers["Content-Type"] = "text/html; charset=utf-8"
+        headers["Cache-Control"] = "no-store"
+        # read per request: page tweaks apply without a bot restart
+        return Response(HTTPStatus.OK, "OK", headers, PAGE_PATH.read_bytes())
+    headers["Content-Type"] = "text/plain"
+    return Response(HTTPStatus.NOT_FOUND, "Not Found", headers, b"404")
 
 
 async def _session(bbs, bot, cfg, ws) -> None:
@@ -176,13 +174,12 @@ async def _noop(*_a, **_k):
 
 async def start(bbs, bot, cfg):
     """Start the local web-terminal server; returns the server object."""
-    page = PAGE_PATH.read_bytes()
 
     async def handler(ws):
         await _session(bbs, bot, cfg, ws)
 
     server = await serve(handler, "127.0.0.1", cfg.web_port,
-                         process_request=_make_process_request(page))
+                         process_request=_process_request)
     log.info("CRT terminal on http://127.0.0.1:%s -- tunnel it, e.g. "
              "cloudflared tunnel --url http://localhost:%s",
              cfg.web_port, cfg.web_port)

@@ -14,10 +14,13 @@
            background: radial-gradient(ellipse 120% 100% at 50% 40%, #071307 0%, #020402 78%, #000 100%);
            border-radius: 18px; }
   #crt { flex:1; overflow-y:auto; padding:12px 8px 4px; -webkit-overflow-scrolling:touch; }
-  #screen { margin:0; font: 13px/1.3 inherit; color:var(--ph); white-space:pre;
+  #screen { margin:0; font-family:inherit; font-size:13px; line-height:1.28;
+            color:var(--ph); white-space:pre;
             text-shadow: 0 0 4px rgba(58,255,110,.55), 0 0 14px rgba(58,255,110,.22);
             transition: opacity .06s; }
   #screen.flick { opacity:.25; }
+  #ruler { position:absolute; left:-9999px; top:0; margin:0;
+           font-family:inherit; white-space:pre; visibility:hidden; }
   /* scanlines + vignette + slow flicker */
   #fx { pointer-events:none; position:fixed; inset:0; border-radius:18px;
         background:
@@ -50,7 +53,7 @@
    CONNECT 14400/ARQ
 
    dialing the tower...
-</pre></div>
+</pre><pre id="ruler" aria-hidden="true"></pre></div>
   <div id="keys"></div>
   <div id="inbar">
     <input id="in" autocomplete="off" autocapitalize="off" spellcheck="false"
@@ -68,6 +71,25 @@
   var ws = null, backoff = 1500;
 
   function el(id) { return document.getElementById(id); }
+  function fit() {
+    // scale the font so the widest screen line fills the CRT width
+    var scr = el("screen"), crt = el("crt"), ruler = el("ruler");
+    var cols = 34;
+    (scr.textContent || "").split("\n").forEach(function (l) {
+      if (l.length > cols) cols = l.length;
+    });
+    ruler.style.fontSize = "100px";
+    ruler.textContent = Array(51).join("X");
+    var cw = ruler.getBoundingClientRect().width / 50;  // px/char @100px
+    ruler.textContent = "";
+    var avail = crt.clientWidth - 20;
+    var fs = Math.floor(100 * avail / (cols * cw));
+    scr.style.fontSize = Math.max(9, Math.min(fs, 30)) + "px";
+  }
+  var fitTimer = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(fitTimer); fitTimer = setTimeout(fit, 120);
+  });
   function setScreen(html) {
     var scr = el("screen");
     scr.classList.add("flick");
@@ -78,6 +100,7 @@
       scr.textContent = "";
       scr.innerHTML = pre.innerHTML;
       scr.classList.remove("flick");
+      fit();
       el("crt").scrollTop = 0;
     }, 60);
   }
@@ -128,6 +151,7 @@
   document.addEventListener("keydown", function (e) {
     if (document.activeElement !== el("in") && e.key.length === 1) el("in").focus();
   });
+  fit();
   connect();
 })();
 </script>
