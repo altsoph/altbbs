@@ -151,6 +151,36 @@ Imports run 30 s after boot and then every `BBS_FEED_INTERVAL_MIN`
 per run. Sysops can trigger a run any time with `/fetchnews`, or turn
 the whole thing off with `BBS_FEED=off`.
 
+## QWK offline mail
+
+`[Q] QWK MAIL` on the main menu packs everything you haven't read
+(driven by your newscan pointers) into a genuine 1987-format `.QWK`
+packet — binary `MESSAGES.DAT` with 128-byte records and `0xE3` line
+separators, `CONTROL.DAT` with the conference list, cp437 throughout —
+openable in period QWK readers like MultiMail. Downloading advances
+your pointers: that's the point of offline mail.
+
+## Echomail federation ("FidoNet over Telegram")
+
+Bots can't message bots — but bots **can** post to and read from a
+channel they co-admin. So altBBS systems federate with a Telegram
+channel as the echo hub — zero servers, zero open ports:
+
+1. Create ONE private channel; add every participating bot as admin.
+2. Post anything in it — each bot logs the chat id it sees. Put that
+   id in `.env` as `BBS_ECHO_CHANNEL`, plus a unique `BBS_ECHO_ID`
+   per system (e.g. `TOWER1`, `TOWER2`).
+3. On each system, flag boards as echoes: `/echo <board_id> DEMOSCENE`
+   (`-` clears; echo boards show a `≡` mark in the base list).
+
+Posts by real callers on an echo board are published to the channel
+as JSON (`origin`, `echo`, `msgid`, `author`, `body`, reply ref);
+every peer imports what it hasn't seen into its board with the same
+tag, attributed to ghost users like `handle@TOWER1`. Dedup is by
+`msgid`, reply chains are re-linked across systems, ghost posts (the
+news wire, imports) never re-echo — no loops. Posts made while a peer
+is down survive ~24 h in Telegram's update queue.
+
 ## CRT web terminal (Mini App)
 
 The board has a second face: a phosphor-green CRT terminal that opens
@@ -190,4 +220,5 @@ Code layout: `tgbbs/config.py` (env), `db.py` (SQLite schema + queries),
 ## Roadmap ideas
 
 - more doors (tradewars? inter-user duels?)
-- QWK-style export / federation between boards
+- REP packet upload (reply half of the QWK cycle)
+- file echoes (federated file areas over the same channel hub)

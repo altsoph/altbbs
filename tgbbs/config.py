@@ -1,6 +1,7 @@
 """Configuration: .env file + environment variables."""
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,6 +44,9 @@ class Config:
     web_port: int = 8737          # local bind port (127.0.0.1 only)
     web_enabled: bool = False
     web_dev: bool = False         # auth bypass for the local test rig
+    # echomail federation (shared Telegram channel as the hub)
+    echo_channel: str = ""        # channel id (-100...) or @username
+    echo_id: str = "ALTBBS"       # this system's unique network name
 
     @classmethod
     def load(cls) -> "Config":
@@ -64,5 +68,9 @@ class Config:
         )
         web = os.environ.get("BBS_WEB", "auto").lower()
         cfg.web_enabled = web == "on" or (web != "off" and bool(cfg.web_url))
+        cfg.echo_channel = os.environ.get("BBS_ECHO_CHANNEL", "")
+        cfg.echo_id = (os.environ.get("BBS_ECHO_ID", "") or
+                       re.sub(r"[^A-Z0-9]", "",
+                              cfg.bbs_name.upper())[:8] or "ALTBBS")
         cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
         return cfg

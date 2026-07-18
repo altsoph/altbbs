@@ -235,6 +235,79 @@ def main() -> None:
     print("===== text preview (zine, page 1) " + "=" * 31)
     print(strip_pre(text))
 
+    # QWK export: real binary format, pointer advance
+    from tgbbs.qwk import build_qwk
+    db.mark_all_read(uid, user["level"])
+    db.post(1, 1, "qwk test subject\nbody line one\nbody line two")
+    data, count, advance = build_qwk(db, cfg, user)
+    assert count == 1 and advance
+    import io as _io
+    import zipfile as _zip
+    z = _zip.ZipFile(_io.BytesIO(data))
+    assert set(z.namelist()) == {"CONTROL.DAT", "MESSAGES.DAT", "HELLO"}
+    ctl = z.read("CONTROL.DAT").decode("cp437").splitlines()
+    assert ctl[0] == cfg.bbs_name and ctl[9] == "1"
+    md = z.read("MESSAGES.DAT")
+    assert len(md) % 128 == 0 and md[128 + 122] == 0xE1  # header sane
+    assert b"qwk test subject" in md and b"\xe3" in md
+    for bid, top in advance.items():
+        db.set_ptr(uid, bid, top)
+    assert db.total_unread(uid, user["level"]) == 0
+    d2, c2, _ = build_qwk(db, cfg, user)
+    assert c2 == 0  # nothing unread -> empty packet
+
+    # echomail federation: publish payload -> import on a second system
+    import asyncio as _aio
+    import tempfile as _tmp
+    from pathlib import Path as _P
+
+    from tgbbs import echonet
+    from tgbbs.config import Config as _Cfg
+    from tgbbs.db import DB as _DB
+
+    class _StubBot:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text, **kw):
+            self.sent.append((chat_id, text))
+
+    cfg.echo_channel, cfg.echo_id = "-100777", "TOWER1"
+    db.set_echo_tag(2, "DEMOSCENE")
+    assert db.board_by_echo("demoscene")["id"] == 2
+    mid = db.post(2, 1, "echomail test\ngreetings across the net")
+    bot = _StubBot()
+    _aio.run(echonet.publish(bot, cfg, db, mid))
+    assert len(bot.sent) == 1 and bot.sent[0][0] == "-100777"
+    payload = bot.sent[0][1]
+    assert db.echo_msgid_for_local(mid) == f"TOWER1.{mid}"
+
+    # second BBS subscribes to the same echo
+    p2 = _P(_tmp.mkdtemp()) / "peer.db"
+    cfg2 = _Cfg(token="x", db_path=p2, echo_channel="-100777",
+                echo_id="TOWER2")
+    db2 = _DB(p2)
+    db2.set_echo_tag(2, "DEMOSCENE")
+    lid = echonet.import_post(cfg2, db2, payload)
+    assert lid, "import failed"
+    m2 = db2.message(lid)
+    assert m2["handle"] == "st0rmlord@TOWER1"
+    assert "greetings across the net" in m2["body"]
+    assert echonet.import_post(cfg2, db2, payload) is None  # dedup
+    assert echonet.import_post(cfg, db, payload) is None    # own origin
+    # reply on system 2 threads back to the imported message
+    rid = db2.post(2, db2.ensure_ghost("x@Y")["id"], "re: hello", None)
+    bot2 = _StubBot()
+    # (simulate a real local reply: create a real user on db2)
+    real2 = db2.create_user(500, "peeruser")
+    rid = db2.post(2, 500, "back at you", reply_to=lid)
+    _aio.run(echonet.publish(bot2, cfg2, db2, rid))
+    reply_payload = bot2.sent[0][1]
+    rlid = echonet.import_post(cfg, db, reply_payload)
+    assert rlid and db.message(rlid)["reply_to"] == mid  # thread survives!
+    assert echonet.import_post(cfg2, db2, "just humans chatting") is None
+    print("qwk + echonet OK: thread round-tripped between two systems")
+
     # web terminal: initData validation + screen serialization (offline)
     import hashlib
     import hmac as _hm

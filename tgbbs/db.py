@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS files (
     created     INTEGER NOT NULL,
     downloads   INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS echo_seen (
+    msgid      TEXT PRIMARY KEY,             -- "ORIGIN.localid" net-wide id
+    local_id   INTEGER,                      -- our message row, if imported
+    seen       INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS scan_ptr (
     user_id    INTEGER NOT NULL,
     board_id   INTEGER NOT NULL,
@@ -107,7 +112,16 @@ class DB:
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self._seed()
+
+    def _migrate(self) -> None:
+        cols = [r["name"] for r in self.conn.execute(
+            "PRAGMA table_info(boards)")]
+        if "echo_tag" not in cols:
+            self.conn.execute("ALTER TABLE boards ADD COLUMN "
+                              "echo_tag TEXT NOT NULL DEFAULT ''")
+            self.conn.commit()
 
     def _seed(self) -> None:
         cur = self.conn.execute("SELECT COUNT(*) c FROM boards")
@@ -252,6 +266,12 @@ class DB:
     def total_unread(self, uid: int, level: int) -> int:
         return sum(self.unread_count(uid, b["id"]) for b in self.boards(level))
 
+    def unread_messages(self, uid: int, board_id: int, limit: int = 200):
+        return self.conn.execute(
+            "SELECT m.*, u.handle FROM messages m JOIN users u ON u.id=m.author_id "
+            "WHERE m.board_id=? AND m.id>? ORDER BY m.id LIMIT ?",
+            (board_id, self._ptr(uid, board_id), limit)).fetchall()
+
     def mark_all_read(self, uid: int, level: int) -> None:
         for b in self.boards(level):
             top = self.conn.execute(
@@ -390,6 +410,55 @@ class DB:
             "ON CONFLICT(user_id, door) DO UPDATE SET state=excluded.state",
             (uid, door, state))
         self.conn.commit()
+
+    # -- echomail (federation) -------------------------------------------------
+    def set_echo_tag(self, board_id: int, tag: str) -> None:
+        self.conn.execute(
+            "UPDATE boards SET echo_tag=? WHERE id=?", (tag, board_id))
+        self.conn.commit()
+
+    def board_by_echo(self, tag: str):
+        return self.conn.execute(
+            "SELECT * FROM boards WHERE echo_tag=? COLLATE NOCASE AND echo_tag!=''",
+            (tag,)).fetchone()
+
+    def echo_boards(self):
+        return self.conn.execute(
+            "SELECT * FROM boards WHERE echo_tag!='' ORDER BY id").fetchall()
+
+    def echo_known(self, msgid: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM echo_seen WHERE msgid=?", (msgid,)).fetchone() is not None
+
+    def echo_mark(self, msgid: str, local_id: int | None) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO echo_seen(msgid, local_id, seen) VALUES (?,?,?)",
+            (msgid, local_id, now()))
+        self.conn.commit()
+
+    def echo_msgid_for_local(self, local_id: int) -> str | None:
+        r = self.conn.execute(
+            "SELECT msgid FROM echo_seen WHERE local_id=?", (local_id,)).fetchone()
+        return r["msgid"] if r else None
+
+    def echo_local_for(self, msgid: str) -> int | None:
+        r = self.conn.execute(
+            "SELECT local_id FROM echo_seen WHERE msgid=?", (msgid,)).fetchone()
+        return r["local_id"] if r else None
+
+    def ensure_ghost(self, handle: str):
+        """Get or create a ghost user (negative id) for a foreign author."""
+        u = self.user_by_handle(handle)
+        if u:
+            return u
+        low = self.conn.execute("SELECT MIN(id) m FROM users").fetchone()["m"]
+        gid = min((low or 0) - 1, -301)
+        ts = now()
+        self.conn.execute(
+            "INSERT INTO users(id, handle, level, joined, last_call, calls) "
+            "VALUES (?,?,?,?,?,?)", (gid, handle, 0, ts, ts, 0))
+        self.conn.commit()
+        return self.user(gid)
 
     # -- news feed dedup -----------------------------------------------------
     def feed_seen(self, key: str) -> bool:

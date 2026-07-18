@@ -34,7 +34,8 @@ def main() -> None:
         sys.exit(1)
     app = build_app(cfg)
     print(f"▓▒░ {cfg.bbs_name} ░▒▓  online (long polling, ctrl-c to hang up)")
-    app.run_polling(allowed_updates=["message", "callback_query"])
+    app.run_polling(
+        allowed_updates=["message", "callback_query", "channel_post"])
 
 
 if __name__ == "__main__":

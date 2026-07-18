@@ -25,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import art, asciiview
+from . import art, asciiview, echonet
 from .config import FILES_DIR, Config
 from .db import DB
 from .doors import DOORS, DoorAPI
@@ -182,7 +182,8 @@ class BBS:
         if self.cfg.web_url:
             rows.append([Btn("[W] CRT TERMINAL",
                              web_app=WebAppInfo(url=self.cfg.web_url))])
-        rows.append([Btn("[G] LOGOFF", callback_data="logoff")])
+        rows.append([Btn("[Q] QWK MAIL", callback_data="qwk"),
+                     Btn("[G] LOGOFF", callback_data="logoff")])
         return screen("main menu", body, status_line(user), logo=True), Kbd(rows)
 
     # -- message bases ------------------------------------------------------
@@ -190,7 +191,8 @@ class BBS:
         body = []
         rows = []
         for b in self.db.boards(user["level"]):
-            body.append(f" {b['id']:>2} {trunc(b['name'], 18):<18} {b['n']:>4}")
+            mark = "≡" if b["echo_tag"] else " "
+            body.append(f"{mark}{b['id']:>2} {trunc(b['name'], 18):<18} {b['n']:>4}")
             body.append(f"    {trunc(b['descr'], 28)}")
             rows.append([Btn(f"[{b['id']}] {b['name'].upper()}",
                              callback_data=f"board:{b['id']}:0")])
@@ -520,6 +522,49 @@ class BBS:
         rows = [[Btn("[Q] BACK", callback_data=back)]]
         return screen(trunc(title, 24), body, status_line(user)), Kbd(rows)
 
+    # -- QWK offline mail ------------------------------------------------------
+    def scr_qwk(self, user, note: str = ""):
+        n = self.db.total_unread(user["id"], user["level"])
+        body = [
+            "  offline mail, 1987 style:",
+            "  a .QWK packet of everything",
+            "  you haven't read, for any",
+            "  period QWK reader.",
+            "",
+            f"  unread messages: {n}",
+            "",
+            "  downloading ADVANCES your",
+            "  newscan pointers -- that is",
+            "  the point of offline mail.",
+        ]
+        if note:
+            body += ["", f"  {note}"]
+        rows = []
+        if n:
+            rows.append([Btn("[D] DOWNLOAD PACKET", callback_data="qwkgo")])
+        rows.append([Btn("[Q] BACK", callback_data="menu")])
+        return screen("offline mail", body, status_line(user)), Kbd(rows)
+
+    async def _qwk_send(self, update, ctx, user):
+        from . import qwk
+        data, count, advance = qwk.build_qwk(self.db, self.cfg, user)
+        if not count:
+            return self.scr_qwk(user, note="nothing unread. lucky you.")
+        try:
+            await ctx.bot.send_document(
+                update.effective_chat.id, data,
+                filename=f"{self.cfg.echo_id}.QWK",
+                caption=f"{count} msgs · open with any QWK reader")
+        except Exception as e:
+            log.warning("qwk send failed: %s", e)
+            return self.scr_qwk(user, note="transfer failed. try again.")
+        for board_id, top in advance.items():
+            self.db.set_ptr(user["id"], board_id, top)
+        nodelog.info("%s downloaded a QWK packet (%s msgs)",
+                     user["handle"], count)
+        return self.scr_qwk(user, note=f"sent: {count} msgs packed. "
+                                       "pointers advanced.")
+
     # -- CRT terminal launcher ---------------------------------------------
     def scr_crt(self, user):
         if not self.cfg.web_url:
@@ -633,6 +678,7 @@ class BBS:
             "  /ban handle   /unban handle",
             "  /invite tg_user_id",
             "  /fetchnews (run wire now)",
+            "  /echo board_id TAG (- clears)",
             "",
             "  file control lives on each",
             "  file's info screen:",
@@ -806,6 +852,31 @@ class BBS:
     async def cmd_unban(self, update: Update, ctx):
         await self.cmd_ban(update, ctx, banned=False)
 
+    async def cmd_echo(self, update: Update, ctx):
+        """Sysop: /echo <board_id> <TAG>  (TAG '-' clears the echo flag)."""
+        user = self.caller(update)
+        if not user or user["level"] < 100:
+            return
+        try:
+            board = self.db.board(int(ctx.args[0]))
+            tag = ctx.args[1].upper()[:16]
+            assert board and (tag == "-" or re.match(r"^[A-Z0-9._-]+$", tag))
+        except (IndexError, ValueError, AssertionError):
+            await update.message.reply_text(
+                "usage: /echo <board_id> <TAG>   (- clears)")
+            return
+        self.db.set_echo_tag(board["id"], "" if tag == "-" else tag)
+        nodelog.info("%s set echo tag of board %s to %s",
+                     user["handle"], board["id"], tag)
+        echoes = "\n".join(f"{b['id']:>3} {b['name']:<16} {b['echo_tag']}"
+                           for b in self.db.echo_boards()) or "(none)"
+        await update.message.reply_text(
+            f"<pre>▓▒░ echo boards ░▒▓\n{echoes}</pre>",
+            parse_mode=ParseMode.HTML)
+
+    async def on_channel_post(self, update: Update, ctx):
+        await echonet.on_channel_post(self, update, ctx)
+
     async def cmd_fetchnews(self, update: Update, ctx):
         user = self.caller(update)
         if not user or user["level"] < 100:
@@ -880,6 +951,10 @@ class BBS:
                 self.db.mark_all_read(user["id"], user["level"])
                 nodelog.info("%s marked all read", user["handle"])
                 out = self.scr_main(user)
+            elif cmd == "qwk":
+                out = self.scr_qwk(user)
+            elif cmd == "qwkgo":
+                out = await self._qwk_send(update, ctx, user)
             elif cmd == "crt":
                 out = self.scr_crt(user)
             elif cmd == "doors":
@@ -1112,6 +1187,7 @@ class BBS:
             self.db.add_credits(uid, 2)
             nodelog.info("%s posted msg #%s to board %s",
                          user["handle"], mid, s["ctx"]["board"])
+            await echonet.publish(ctx.bot, self.cfg, self.db, mid)
             out = self.scr_msg(user, mid)
         elif mode == "reply":
             orig = self.db.message(s["ctx"]["msg"])
@@ -1119,6 +1195,7 @@ class BBS:
                 mid = self.db.post(orig["board_id"], uid, text[:MAX_BODY],
                                    reply_to=orig["id"])
                 self.db.add_credits(uid, 2)
+                await echonet.publish(ctx.bot, self.cfg, self.db, mid)
                 out = self.scr_msg(user, mid)
             else:
                 out = self.scr_boards(user)
@@ -1274,6 +1351,9 @@ def build_app(cfg: Config) -> Application:
     app.add_handler(CommandHandler("unban", bbs.cmd_unban))
     app.add_handler(CommandHandler("invite", bbs.cmd_invite))
     app.add_handler(CommandHandler("fetchnews", bbs.cmd_fetchnews))
+    app.add_handler(CommandHandler("echo", bbs.cmd_echo))
+    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST,
+                                   bbs.on_channel_post))
     app.add_handler(CallbackQueryHandler(bbs.on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bbs.on_text))
     app.add_handler(MessageHandler(filters.Document.ALL, bbs.on_document))
