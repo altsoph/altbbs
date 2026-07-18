@@ -335,6 +335,7 @@ class BBS:
             "  /setlevel handle n",
             "  /ban handle   /unban handle",
             "  /invite tg_user_id",
+            "  /fetchnews (run wire now)",
             "",
             f"  system is {'OPEN' if self.cfg.new_users_open else 'CLOSED (invite)'}",
         ]
@@ -418,6 +419,19 @@ class BBS:
 
     async def cmd_unban(self, update: Update, ctx):
         await self.cmd_ban(update, ctx, banned=False)
+
+    async def cmd_fetchnews(self, update: Update, ctx):
+        user = self.caller(update)
+        if not user or user["level"] < 100:
+            return
+        from . import newsfeed
+        await update.message.reply_text("dialing the wire services...")
+        counts = await newsfeed.run_import(self.db, self.cfg)
+        report = "\n".join(
+            f"{src:<10} {'FETCH FAILED' if n < 0 else f'{n} new'}"
+            for src, n in counts.items())
+        await update.message.reply_text(
+            f"<pre>▓▒░ news wire ░▒▓\n{report}</pre>", parse_mode=ParseMode.HTML)
 
     async def cmd_invite(self, update: Update, ctx):
         user = self.caller(update)
@@ -678,7 +692,13 @@ class BBS:
 def build_app(cfg: Config) -> Application:
     db = DB(cfg.db_path)
     bbs = BBS(cfg, db)
-    app = Application.builder().token(cfg.token).build()
+
+    async def _post_init(application: Application) -> None:
+        if cfg.feed_enabled:
+            from . import newsfeed
+            application.create_task(newsfeed.feed_loop(db, cfg))
+
+    app = Application.builder().token(cfg.token).post_init(_post_init).build()
     app.add_handler(CommandHandler("start", bbs.cmd_start))
     app.add_handler(CommandHandler("help", bbs.cmd_help))
     app.add_handler(CommandHandler("menu", bbs.cmd_menu))
@@ -686,6 +706,7 @@ def build_app(cfg: Config) -> Application:
     app.add_handler(CommandHandler("ban", bbs.cmd_ban))
     app.add_handler(CommandHandler("unban", bbs.cmd_unban))
     app.add_handler(CommandHandler("invite", bbs.cmd_invite))
+    app.add_handler(CommandHandler("fetchnews", bbs.cmd_fetchnews))
     app.add_handler(CallbackQueryHandler(bbs.on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bbs.on_text))
     app.add_handler(MessageHandler(filters.Document.ALL, bbs.on_document))

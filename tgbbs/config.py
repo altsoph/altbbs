@@ -31,6 +31,11 @@ class Config:
     width: int = 34               # screen width in monospace columns
     page_size: int = 7            # list items per page
     db_path: Path = field(default_factory=lambda: ROOT / "data" / "bbs.db")
+    # news wire
+    feed_enabled: bool = True
+    feed_interval_min: int = 180
+    feed_max_per_source: int = 5
+    feed_hn_min_score: int = 100
 
     @classmethod
     def load(cls) -> "Config":
@@ -40,6 +45,10 @@ class Config:
             bbs_name=os.environ.get("BBS_NAME", cls.bbs_name),
             tagline=os.environ.get("BBS_TAGLINE", cls.tagline),
             new_users_open=os.environ.get("BBS_NEW_USERS", "open").lower() != "closed",
+            feed_enabled=os.environ.get("BBS_FEED", "on").lower() not in ("off", "0", "no"),
+            feed_interval_min=int(os.environ.get("BBS_FEED_INTERVAL_MIN", "180")),
+            feed_max_per_source=int(os.environ.get("BBS_FEED_MAX_PER_SOURCE", "5")),
+            feed_hn_min_score=int(os.environ.get("BBS_FEED_HN_MIN_SCORE", "100")),
         )
         cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
         return cfg

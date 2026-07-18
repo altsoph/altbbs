@@ -56,6 +56,11 @@ CREATE TABLE IF NOT EXISTS files (
     created     INTEGER NOT NULL,
     downloads   INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS feed_seen (
+    key        TEXT PRIMARY KEY,             -- normalized url
+    source     TEXT NOT NULL,
+    seen       INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS oneliners (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     author_id  INTEGER NOT NULL REFERENCES users(id),
@@ -161,6 +166,10 @@ class DB:
             "INSERT INTO boards(name, descr, min_level) VALUES (?,?,?)",
             (name, descr, min_level))
         self.conn.commit()
+
+    def board_by_name(self, name: str):
+        return self.conn.execute(
+            "SELECT * FROM boards WHERE name=? COLLATE NOCASE", (name,)).fetchone()
 
     def board_messages(self, board_id: int, limit: int, offset: int):
         return self.conn.execute(
@@ -283,6 +292,17 @@ class DB:
         self.conn.execute(
             "INSERT INTO oneliners(author_id, text, created) VALUES (?,?,?)",
             (author_id, text, now()))
+        self.conn.commit()
+
+    # -- news feed dedup -----------------------------------------------------
+    def feed_seen(self, key: str) -> bool:
+        return self.conn.execute(
+            "SELECT 1 FROM feed_seen WHERE key=?", (key,)).fetchone() is not None
+
+    def feed_mark(self, key: str, source: str) -> None:
+        self.conn.execute(
+            "INSERT OR IGNORE INTO feed_seen(key, source, seen) VALUES (?,?,?)",
+            (key, source, now()))
         self.conn.commit()
 
     # -- stats -------------------------------------------------------------

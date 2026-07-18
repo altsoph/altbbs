@@ -97,6 +97,25 @@ seat — ghost users live on negative ids):
   2026-edition modem init strings
 - a wall of oneliners
 
+## News wire (scheduled import)
+
+So there's always something real to read, the bot imports headlines on a
+schedule into three auto-created boards, posted by the ghost user
+`newswire`:
+
+- **hn wire** — Hacker News front page (score ≥ 100)
+- **lobsters wire** — lobste.rs hottest
+- **trends wire** — [shir-man.com](https://shir-man.com/homepage/)
+  merged top-of-day dashboard (RSS)
+
+Every story is deduplicated by normalized URL *across all sources*
+(tracking params, `www.`, scheme and trailing slashes ignored), so an
+HN story that also surfaces on the trends dashboard is posted once.
+Imports run 30 s after boot and then every `BBS_FEED_INTERVAL_MIN`
+(default 3 h), capped at `BBS_FEED_MAX_PER_SOURCE` new posts per source
+per run. Sysops can trigger a run any time with `/fetchnews`, or turn
+the whole thing off with `BBS_FEED=off`.
+
 ## Development
 
 ```powershell
