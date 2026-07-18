@@ -50,6 +50,8 @@ copy .env.example .env      # then paste your token from @BotFather
 - Everything else is inline buttons — the classic hotkey menu:
   `[M]` message bases · `[E]` mail · `[F]` files · `[O]` oneliners ·
   `[L]` last callers · `[U]` users · `[G]` logoff (`+++ATH0`).
+  **Typing the hotkey letter works too** (`m`, `q`, `<`/`>` for
+  prev/next page) — just like a real terminal.
 - **Posting**: open a base → `[P] POST` → type your message
   (first line acts as the subject).
 - **Mail**: `[E]` → `[W] WRITE` → recipient handle → text. Recipients
@@ -66,7 +68,9 @@ copy .env.example .env      # then paste your token from @BotFather
   a `[V] VIEW ASCII` button (up to 20 MB, the Bot API getFile limit).
 - **Node log**: the console prints a classic sysop log of real caller
   activity — calls, registrations, navigation, posts, mail, chat
-  lines, uploads, downloads and ascii views.
+  lines, uploads, downloads and ascii views. The same detailed log is
+  appended to `data/bbs.log` (flushed per record), and the full chat
+  transcript goes to `data/chat.log`.
 
 ## Sysop
 

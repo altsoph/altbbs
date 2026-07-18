@@ -31,6 +31,7 @@ from .render import esc, screen, status_line, trunc, ts, wrap
 
 log = logging.getLogger("tgbbs")
 nodelog = logging.getLogger("tgbbs.node")  # the classic sysop node log
+chatlog = logging.getLogger("tgbbs.chatlog")  # full transcript (file handler)
 
 HANDLE_RE = re.compile(r"^[a-zA-Z0-9._-]{2,16}$")
 MAX_BODY = 2000  # keep posts well under Telegram's 4096-char screen limit
@@ -59,10 +60,29 @@ class BBS:
     def chatters(self) -> list[int]:
         return [uid for uid, s in self.sessions.items() if s.get("chat")]
 
+    @staticmethod
+    def _hotkeys(kbd: Kbd | None) -> dict[str, str]:
+        """Map button hotkey letters ([M], [Q], «/») to their actions."""
+        keys: dict[str, str] = {}
+        if not kbd:
+            return keys
+        for row in kbd.inline_keyboard:
+            for b in row:
+                label = b.text or ""
+                m = re.match(r"\[(\w)\]", label)
+                if m:
+                    keys[m.group(1).upper()] = b.callback_data
+                elif label.startswith("«"):
+                    keys["<"] = b.callback_data
+                elif label.endswith("»"):
+                    keys[">"] = b.callback_data
+        return keys
+
     # ── screen output ────────────────────────────────────────────────────
     async def show(self, update: Update, ctx, text: str, kbd: Kbd | None):
         """Edit the terminal message in place; fall back to sending a new one."""
         s = self.sess(update.effective_user.id)
+        s["keys"] = self._hotkeys(kbd)  # typed hotkeys mirror this screen
         chat_id = update.effective_chat.id
         if update.callback_query and update.callback_query.message:
             try:
@@ -398,11 +418,19 @@ class BBS:
                 if "not modified" not in str(e).lower():
                     log.debug("chat broadcast to %s failed: %s", uid, e)
 
+    def _chat_add(self, who: str, text: str) -> None:
+        """Append to the in-memory chat + the on-disk transcript."""
+        self.chat_log.append((who, text))
+        if who == "*":
+            chatlog.info("* %s", text)
+        else:
+            chatlog.info("<%s> %s", who, text)
+
     async def _chat_leave(self, user, ctx) -> None:
         s = self.sess(user["id"])
         if s.get("chat"):
             s["chat"] = False
-            self.chat_log.append(("*", f"{user['handle']} left"))
+            self._chat_add("*", f"{user['handle']} left")
             nodelog.info("%s left chat", user["handle"])
             await self._chat_broadcast(ctx.bot)
 
@@ -668,19 +696,22 @@ class BBS:
         if not user:
             await q.answer("no carrier. /start to log in.")
             return
-        self.touch_presence(update)
-        s = self.sess(user["id"])
-        data = q.data or "menu"
-        cmd, *args = data.split(":")
-        s["await"] = None  # any navigation aborts pending input
-        nodelog.info("%s: [%s]", user["handle"], data)
-        # ACK the button press NOW: slow work below (getFile, image
-        # conversion) can outlive the callback's validity window, and a
-        # failed late answer() would abort before the screen is drawn
+        nodelog.info("%s: [%s]", user["handle"], q.data)
+        # ACK the button press NOW: slow work (getFile, image conversion)
+        # can outlive the callback's validity window, and a failed late
+        # answer() would abort before the screen is drawn
         try:
             await q.answer()
         except BadRequest:
             pass
+        await self._act(update, ctx, user, q.data or "menu")
+
+    async def _act(self, update: Update, ctx, user, data: str) -> None:
+        """Route an action -- button press or typed hotkey -- and render."""
+        self.touch_presence(update)
+        s = self.sess(user["id"])
+        cmd, *args = data.split(":")
+        s["await"] = None  # any navigation aborts pending input
         if cmd != "chat":
             await self._chat_leave(user, ctx)
 
@@ -812,7 +843,7 @@ class BBS:
             elif cmd == "chat":
                 if not s.get("chat"):
                     s["chat"] = True
-                    self.chat_log.append(("*", f"{user['handle']} joined"))
+                    self._chat_add("*", f"{user['handle']} joined")
                     nodelog.info("%s joined chat", user["handle"])
                 s["await"] = "chat"
                 out = self.scr_chat(user)
@@ -862,7 +893,18 @@ class BBS:
         mode = s["await"]
         text = (update.message.text or "").strip()
         if not mode:
-            return  # stray chatter: the BBS only listens when it asked
+            # typed hotkey acts like pressing the matching button
+            if user and len(text) == 1:
+                data = (s.get("keys") or {}).get(text.upper())
+                if data:
+                    try:
+                        await update.message.delete()
+                    except BadRequest:
+                        pass
+                    nodelog.info("%s typed %s -> [%s]",
+                                 user["handle"], text.upper(), data)
+                    await self._act(update, ctx, user, data)
+            return
 
         # eat the input line to keep the terminal clean
         try:
@@ -871,7 +913,7 @@ class BBS:
             pass
 
         if mode == "chat" and user:
-            self.chat_log.append((user["handle"], text[:200]))
+            self._chat_add(user["handle"], text[:200])
             nodelog.info("%s @chat: %s", user["handle"], trunc(text, 60))
             await self._chat_broadcast(ctx.bot)
             return

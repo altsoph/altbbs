@@ -96,6 +96,14 @@ def main() -> None:
     db.delete_file(tmp_fid)
     assert db.file(tmp_fid) is None
 
+    # typed hotkeys mirror the buttons of the current screen
+    _, kbd = bbs.scr_main(sysop)
+    keys = bbs._hotkeys(kbd)
+    assert keys["M"] == "boards" and keys["G"] == "logoff" and "S" in keys
+    _, kbd = bbs.scr_board(user, 1, 0)
+    keys = bbs._hotkeys(kbd)
+    assert keys["P"] == "post:1" and keys["Q"] == "boards"
+
     # ascii viewer: generated gradient image -> ascii lines that fit a screen
     from io import BytesIO
 
