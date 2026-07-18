@@ -1,5 +1,6 @@
 """All bot logic: the state machine turning Telegram updates into BBS screens."""
 
+import asyncio
 import logging
 import random
 import re
@@ -554,7 +555,7 @@ class BBS:
                                           f["name"], back)
                 tg_file = await ctx.bot.get_file(src)
                 data = bytes(await tg_file.download_as_bytearray())
-            lines = asciiview.image_to_ascii(data)
+            lines = await asyncio.to_thread(asciiview.image_to_ascii, data)
             nodelog.info("%s viewed #%s %s as ascii",
                          user["handle"], f["id"], f["name"])
         except Exception as e:
@@ -673,6 +674,13 @@ class BBS:
         cmd, *args = data.split(":")
         s["await"] = None  # any navigation aborts pending input
         nodelog.info("%s: [%s]", user["handle"], data)
+        # ACK the button press NOW: slow work below (getFile, image
+        # conversion) can outlive the callback's validity window, and a
+        # failed late answer() would abort before the screen is drawn
+        try:
+            await q.answer()
+        except BadRequest:
+            pass
         if cmd != "chat":
             await self._chat_leave(user, ctx)
 
@@ -739,7 +747,6 @@ class BBS:
                     a = self.db.area(f["area_id"])
                     if a["min_level"] <= user["level"]:
                         self.db.bump_downloads(f["id"])
-                        await q.answer("transferring...")
                         src = f["tg_file_id"]
                         if src.startswith("local:"):
                             # bundled file served from disk (bootstrap content)
@@ -809,7 +816,6 @@ class BBS:
                     nodelog.info("%s joined chat", user["handle"])
                 s["await"] = "chat"
                 out = self.scr_chat(user)
-                await q.answer()
                 await self.show(update, ctx, *out)
                 await self._chat_broadcast(ctx.bot)
                 return
@@ -841,7 +847,6 @@ class BBS:
         except (ValueError, IndexError):
             out = self.scr_main(user)
 
-        await q.answer()
         await self.show(update, ctx, *out)
 
     # typed text ---------------------------------------------------------------
@@ -967,7 +972,7 @@ class BBS:
             try:
                 tg_file = await ctx.bot.get_file(tg_file_id)
                 data = bytes(await tg_file.download_as_bytearray())
-                lines = asciiview.image_to_ascii(data)
+                lines = await asyncio.to_thread(asciiview.image_to_ascii, data)
                 nodelog.info("%s ascii-viewed a sent image (%s)",
                              user["handle"], title)
             except Exception as e:
