@@ -3,11 +3,12 @@
 WIDTH = 34
 
 # ── logo: "altBBS" in half-block style ──────────────────────────────────
+# mobile-safe: only █ ▀ ▄ -- Android's mono font lacks the quadrant
+# blocks (▛▙▌▐▝, U+2596-259F) and renders them as mismatched fallbacks
 LOGO = [
-    "        █   █   ▛▀▀▄ ▛▀▀▄ ▄▀▀▀▄",
-    "   ▄▀▀▄ █  ▀█▀  ▙▄▄▀ ▙▄▄▀ ▀▄▄  ",
-    "   █▄▄█ █▄  █▄  ▌  ▐ ▌  ▐ ▄  ▝▌",
-    "   ▄▄▄▄▄▄▄▄▄▄▄▄▄▙▄▄▀▄▙▄▄▀▄▝▄▄▄▀",
+    "        █   █   █▀▀▄ █▀▀▄ ▄▀▀▀",
+    "   ▄▀▀▄ █  ▀█▀  █▀▀▄ █▀▀▄ ▀▀▀▄",
+    "   █▄▄█ █▄  █▄  █▄▄▀ █▄▄▀ ▄▄▄▀",
 ]
 
 BAR = "░▒▓█▓▒░" * 5            # gradient bar, cut to width

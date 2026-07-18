@@ -6,6 +6,7 @@ aggregates HN, so overlap is the norm, not the exception).
 """
 
 import asyncio
+import html as html_mod
 import logging
 import re
 import time
@@ -48,7 +49,52 @@ def norm_url(url: str) -> str:
     return f"{host}{path}" + (f"?{query}" if query else "")
 
 
-# ── fetchers: each returns [{title, url, comments, meta}] ────────────────
+def strip_html(s: str) -> str:
+    s = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", s, flags=re.S | re.I)
+    s = re.sub(r"<[^>]+>", " ", s)
+    return " ".join(html_mod.unescape(s).split())
+
+
+def clip(s: str, n: int = 300) -> str:
+    s = s.strip()
+    if len(s) <= n:
+        return s
+    return s[:n].rsplit(" ", 1)[0] + "…"
+
+
+_META_DESC = [
+    re.compile(r'<meta[^>]+(?:property|name)=["\'](?:og:|twitter:)?description'
+               r'["\'][^>]*?content=["\']([^"\']+)["\']', re.I),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*?(?:property|name)='
+               r'["\'](?:og:|twitter:)?description["\']', re.I),
+]
+
+
+async def grab_snippet(client: httpx.AsyncClient, url: str,
+                       limit: int = 300) -> str:
+    """Fetch the article page and pull a description out of it."""
+    try:
+        r = await client.get(url)
+        if "html" not in r.headers.get("content-type", "text/html"):
+            return ""
+        text = r.text[:400_000]
+    except Exception as e:
+        log.debug("snippet fetch %s failed: %s", url, e)
+        return ""
+    for pat in _META_DESC:
+        m = pat.search(text)
+        if m:
+            sn = strip_html(m.group(1))
+            if len(sn) > 20:
+                return clip(sn, limit)
+    for m in re.finditer(r"<p[^>]*>(.*?)</p>", text, re.S | re.I):
+        sn = strip_html(m.group(1))
+        if len(sn) > 60:
+            return clip(sn, limit)
+    return ""
+
+
+# ── fetchers: each returns [{title, url, comments, meta, snippet}] ───────
 async def fetch_hn(client: httpx.AsyncClient, scan: int, min_score: int):
     r = await client.get("https://hacker-news.firebaseio.com/v0/topstories.json")
     ids = r.json()[:scan]
@@ -70,6 +116,7 @@ async def fetch_hn(client: httpx.AsyncClient, scan: int, min_score: int):
             "comments": comments,
             "meta": f"{it.get('score', 0)} pts · "
                     f"{it.get('descendants', 0)} comments",
+            "snippet": clip(strip_html(it.get("text") or "")),
         })
     return items
 
@@ -84,6 +131,7 @@ async def fetch_lobsters(client: httpx.AsyncClient, scan: int):
             "url": it.get("url") or it.get("comments_url", ""),
             "comments": it.get("comments_url", ""),
             "meta": f"{it.get('score', 0)} pts · [{tags}]",
+            "snippet": clip(strip_html(it.get("description") or "")),
         })
     return items
 
@@ -101,11 +149,15 @@ async def fetch_trends(client: httpx.AsyncClient, scan: int):
         unit = it.findtext("sm:raw_score_unit", "pts", ns)
         descr = it.findtext("description") or ""
         cm = re.search(r"https://news\.ycombinator\.com/item\?id=\d+", descr)
+        # description = "<b>title</b> (Score: ...)<br/>summary<br/><b>Link:</b>..."
+        summary = descr.split("<b>Link:</b>")[0]
+        summary = re.sub(r"^.*?\(Score:[^)]*\)", "", summary, flags=re.S)
         items.append({
             "title": title,
             "url": url,
             "comments": cm.group(0) if cm else "",
             "meta": f"{score} {unit} · via {src or 'trends'}",
+            "snippet": clip(strip_html(summary)),
         })
         if len(items) >= scan:
             break
@@ -167,7 +219,7 @@ def parse_feed_entries(xml_text: str, scan: int = 5) -> list[dict]:
     for node in root.iter():
         if _strip_ns(node.tag) not in ("item", "entry"):
             continue
-        title = link = None
+        title = link = desc = None
         date = None
         for c in node:
             t = _strip_ns(c.tag)
@@ -182,8 +234,13 @@ def parse_feed_entries(xml_text: str, scan: int = 5) -> list[dict]:
                     link = c.text.strip()
             elif t in ("pubDate", "published", "updated", "date") and date is None:
                 date = _parse_date(c.text)
+            elif t in ("description", "summary") and desc is None:
+                desc = c.text or "".join(c.itertext())
+            elif t in ("encoded", "content") and desc is None:
+                desc = c.text or "".join(c.itertext())    # content:encoded / Atom
         if title and link:
-            out.append({"title": title, "url": link, "date": date})
+            out.append({"title": title, "url": link, "date": date,
+                        "snippet": clip(strip_html(desc or ""))})
         if len(out) >= scan:
             break
     return out
@@ -229,15 +286,11 @@ async def import_opml(db: DB, cfg: Config, client: httpx.AsyncClient,
             items += [e for e in res
                       if e["date"] is None or e["date"] >= cutoff]
         items.sort(key=lambda e: e["date"] or 0, reverse=True)
-        new = 0
         for e in items:
-            if new >= cfg.feed_max_per_source:
-                break
-            if post_item(db, b["id"], f"opml:{cat}", {
-                    "title": e["title"], "url": e["url"], "comments": "",
-                    "meta": f"via {e['feed']}"}):
-                new += 1
-        counts[f"rss:{cat}"] = new
+            e["comments"] = ""
+            e["meta"] = f"via {e['feed']}"
+        counts[f"rss:{cat}"] = await post_new(
+            db, cfg, client, b["id"], f"opml:{cat}", items)
 
 
 # ── plumbing ──────────────────────────────────────────────────────────────
@@ -260,17 +313,36 @@ def ensure_wire(db: DB) -> dict[str, int]:
     return ids
 
 
-def post_item(db: DB, board_id: int, source: str, item: dict) -> bool:
-    key = norm_url(item["url"])
-    if not key or db.feed_seen(key):
-        return False
-    lines = [item["title"].strip(), "", item["url"]]
-    if item["comments"] and norm_url(item["comments"]) != key:
+def build_body(item: dict) -> str:
+    title = item["title"].strip()
+    lines = [title]
+    snippet = (item.get("snippet") or "").strip()
+    # some pages use the title as their description -- no value in repeating it
+    if snippet and snippet.lower().rstrip(".…") != title.lower().rstrip(".…"):
+        lines += ["", snippet]
+    lines += ["", item["url"]]
+    if item.get("comments") and norm_url(item["comments"]) != norm_url(item["url"]):
         lines.append(item["comments"])
     lines.append(item["meta"])
-    db.post(board_id, WIRE_UID, "\n".join(lines)[:2000])
-    db.feed_mark(key, source)
-    return True
+    return "\n".join(lines)[:2000]
+
+
+async def post_new(db: DB, cfg: Config, client: httpx.AsyncClient,
+                   board_id: int, source: str, items: list[dict]) -> int:
+    """Post unseen items to a board, filling missing snippets from the URL."""
+    new = 0
+    for item in items:
+        if new >= cfg.feed_max_per_source:
+            break
+        key = norm_url(item.get("url") or "")
+        if not key or db.feed_seen(key):
+            continue
+        if not item.get("snippet"):
+            item["snippet"] = await grab_snippet(client, item["url"])
+        db.post(board_id, WIRE_UID, build_body(item))
+        db.feed_mark(key, source)
+        new += 1
+    return new
 
 
 async def run_import(db: DB, cfg: Config) -> dict[str, int]:
@@ -289,13 +361,8 @@ async def run_import(db: DB, cfg: Config) -> dict[str, int]:
                 log.warning("fetch %s failed: %s", source, e)
                 counts[source] = -1
                 continue
-            new = 0
-            for item in items:
-                if new >= cfg.feed_max_per_source:
-                    break
-                if post_item(db, boards[source], source, item):
-                    new += 1
-            counts[source] = new
+            counts[source] = await post_new(
+                db, cfg, client, boards[source], source, items)
         await import_opml(db, cfg, client, counts)
     log.info("news wire import: %s", counts)
     return counts

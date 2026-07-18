@@ -1,6 +1,7 @@
 """All bot logic: the state machine turning Telegram updates into BBS screens."""
 
 import logging
+import random
 import re
 from pathlib import Path
 
@@ -345,8 +346,15 @@ class BBS:
         return screen("sysop office", body, status_line(user)), Kbd(rows)
 
     def scr_logoff(self, user):
-        rows = [[Btn("[R] RECONNECT", callback_data="menu")]]
-        return screen("carrier lost", art.LOGOFF, ""), Kbd(rows)
+        body = list(art.LOGOFF)
+        ones = self.db.oneliners(50)
+        if ones:
+            o = random.choice(ones)
+            body += ["   ░▒▓ parting wisdom ▓▒░", ""]
+            body += wrap(f"«{o['text']}»", prefix="   ")
+            body.append(("-- " + o["handle"]).rjust(30))
+        rows = [[Btn("[R] RECONNECT", callback_data="reconnect")]]
+        return screen("carrier lost", body, ""), Kbd(rows)
 
     # ═════════════════════════ UPDATE HANDLERS ═══════════════════════════
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -457,6 +465,11 @@ class BBS:
 
         try:
             if cmd == "menu":
+                out = self.scr_main(user)
+            elif cmd == "reconnect":
+                # coming back from the logoff screen counts as a new call
+                self.db.touch_call(user["id"])
+                user = self.db.user(user["id"])
                 out = self.scr_main(user)
             elif cmd == "boards":
                 out = self.scr_boards(user)
