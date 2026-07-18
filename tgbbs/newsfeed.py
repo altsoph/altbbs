@@ -8,12 +8,16 @@ aggregates HN, so overlap is the norm, not the exception).
 import asyncio
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
+from datetime import datetime
+from email.utils import parsedate_to_datetime
+from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx  # dependency of python-telegram-bot
 
-from .config import Config
+from .config import ROOT, Config
 from .db import DB
 
 log = logging.getLogger("tgbbs.newsfeed")
@@ -108,6 +112,134 @@ async def fetch_trends(client: httpx.AsyncClient, scan: int):
     return items
 
 
+# ── custom RSS/Atom feeds from an OPML file ─────────────────────────────
+def find_opml(cfg: Config) -> Path | None:
+    if cfg.feed_opml:
+        p = Path(cfg.feed_opml)
+        return p if p.is_absolute() else ROOT / p
+    found = sorted(ROOT.glob("*.opml"))
+    return found[0] if found else None
+
+
+def load_opml(path: Path) -> dict[str, list[dict]]:
+    """category -> [{'title', 'url'}], categories from <outline> nesting."""
+    root = ET.fromstring(path.read_text(encoding="utf-8"))
+    cats: dict[str, list[dict]] = {}
+
+    def walk(node, cat):
+        for o in node.findall("outline"):
+            if o.get("xmlUrl"):
+                cats.setdefault(cat, []).append({
+                    "title": (o.get("title") or o.get("text") or "feed").strip(),
+                    "url": o.get("xmlUrl"),
+                })
+            else:
+                walk(o, (o.get("title") or o.get("text") or cat).strip().lower())
+
+    body = root.find("body")
+    if body is not None:
+        walk(body, "rss")
+    return cats
+
+
+def _strip_ns(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _parse_date(s: str | None) -> float | None:
+    if not s:
+        return None
+    s = s.strip()
+    try:
+        return parsedate_to_datetime(s).timestamp()      # RFC 822 (RSS)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def parse_feed_entries(xml_text: str, scan: int = 5) -> list[dict]:
+    """Minimal RSS 2.0 / Atom parser: first `scan` entries of a feed."""
+    root = ET.fromstring(xml_text)
+    out = []
+    for node in root.iter():
+        if _strip_ns(node.tag) not in ("item", "entry"):
+            continue
+        title = link = None
+        date = None
+        for c in node:
+            t = _strip_ns(c.tag)
+            if t == "title" and c.text:
+                title = " ".join(c.text.split())
+            elif t == "link":
+                href = c.get("href")
+                if href:                                  # Atom
+                    if (c.get("rel") or "alternate") == "alternate" or not link:
+                        link = href.strip()
+                elif c.text and c.text.strip():           # RSS
+                    link = c.text.strip()
+            elif t in ("pubDate", "published", "updated", "date") and date is None:
+                date = _parse_date(c.text)
+        if title and link:
+            out.append({"title": title, "url": link, "date": date})
+        if len(out) >= scan:
+            break
+    return out
+
+
+async def fetch_opml_feed(client: httpx.AsyncClient,
+                          sem: asyncio.Semaphore, feed: dict) -> list[dict]:
+    async with sem:
+        r = await client.get(feed["url"])
+        r.raise_for_status()
+        entries = parse_feed_entries(r.text)
+    for e in entries:
+        e["feed"] = feed["title"]
+    return entries
+
+
+async def import_opml(db: DB, cfg: Config, client: httpx.AsyncClient,
+                      counts: dict) -> None:
+    path = find_opml(cfg)
+    if not path or not path.is_file():
+        return
+    try:
+        cats = load_opml(path)
+    except ET.ParseError as e:
+        log.warning("opml %s unparseable: %s", path.name, e)
+        return
+    cutoff = time.time() - cfg.feed_max_age_days * 86400
+    sem = asyncio.Semaphore(8)
+    for cat, feeds in cats.items():
+        bname = f"{cat[:20]} wire"
+        b = db.board_by_name(bname)
+        if not b:
+            db.add_board(bname, f"auto: {len(feeds)} rss feeds from opml")
+            b = db.board_by_name(bname)
+        results = await asyncio.gather(
+            *(fetch_opml_feed(client, sem, f) for f in feeds),
+            return_exceptions=True)
+        items = []
+        for feed, res in zip(feeds, results):
+            if isinstance(res, BaseException):
+                log.warning("rss %s failed: %s", feed["url"], res)
+                continue
+            items += [e for e in res
+                      if e["date"] is None or e["date"] >= cutoff]
+        items.sort(key=lambda e: e["date"] or 0, reverse=True)
+        new = 0
+        for e in items:
+            if new >= cfg.feed_max_per_source:
+                break
+            if post_item(db, b["id"], f"opml:{cat}", {
+                    "title": e["title"], "url": e["url"], "comments": "",
+                    "meta": f"via {e['feed']}"}):
+                new += 1
+        counts[f"rss:{cat}"] = new
+
+
 # ── plumbing ──────────────────────────────────────────────────────────────
 def ensure_wire(db: DB) -> dict[str, int]:
     """Create the newswire ghost user + wire boards. Returns source->board id."""
@@ -164,6 +296,7 @@ async def run_import(db: DB, cfg: Config) -> dict[str, int]:
                 if post_item(db, boards[source], source, item):
                     new += 1
             counts[source] = new
+        await import_opml(db, cfg, client, counts)
     log.info("news wire import: %s", counts)
     return counts
 

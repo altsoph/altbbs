@@ -108,6 +108,12 @@ schedule into three auto-created boards, posted by the ghost user
 - **trends wire** — [shir-man.com](https://shir-man.com/homepage/)
   merged top-of-day dashboard (RSS)
 
+On top of that, drop an **OPML file** (e.g. a Feedly export) into the
+repo root — or point `BBS_FEED_OPML` at one — and every category in it
+becomes its own wire board (`tech wire`, `ml/ai wire`, ...) fed by
+those RSS/Atom feeds. Entries older than `BBS_FEED_MAX_AGE_DAYS`
+(default 45) are ignored, and dead feeds are skipped with a log line.
+
 Every story is deduplicated by normalized URL *across all sources*
 (tracking params, `www.`, scheme and trailing slashes ignored), so an
 HN story that also surfaces on the trends dashboard is posted once.

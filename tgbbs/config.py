@@ -36,6 +36,8 @@ class Config:
     feed_interval_min: int = 180
     feed_max_per_source: int = 5
     feed_hn_min_score: int = 100
+    feed_opml: str = ""           # OPML path; empty = first *.opml in repo root
+    feed_max_age_days: int = 45   # ignore OPML feed entries older than this
 
     @classmethod
     def load(cls) -> "Config":
@@ -49,6 +51,8 @@ class Config:
             feed_interval_min=int(os.environ.get("BBS_FEED_INTERVAL_MIN", "180")),
             feed_max_per_source=int(os.environ.get("BBS_FEED_MAX_PER_SOURCE", "5")),
             feed_hn_min_score=int(os.environ.get("BBS_FEED_HN_MIN_SCORE", "100")),
+            feed_opml=os.environ.get("BBS_FEED_OPML", ""),
+            feed_max_age_days=int(os.environ.get("BBS_FEED_MAX_AGE_DAYS", "45")),
         )
         cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
         return cfg
