@@ -3,6 +3,8 @@
 import logging
 import random
 import re
+import time
+from collections import deque
 from pathlib import Path
 
 from telegram import (
@@ -21,15 +23,17 @@ from telegram.ext import (
     filters,
 )
 
-from . import art
+from . import art, asciiview
 from .config import FILES_DIR, Config
 from .db import DB
 from .render import esc, screen, status_line, trunc, ts, wrap
 
 log = logging.getLogger("tgbbs")
+nodelog = logging.getLogger("tgbbs.node")  # the classic sysop node log
 
 HANDLE_RE = re.compile(r"^[a-zA-Z0-9._-]{2,16}$")
 MAX_BODY = 2000  # keep posts well under Telegram's 4096-char screen limit
+ONLINE_SECS = 300  # active within 5 min = online
 
 
 class BBS:
@@ -37,9 +41,22 @@ class BBS:
         self.cfg = cfg
         self.db = db
         self.sessions: dict[int, dict] = {}  # tg_id -> {'await': str|None, ...}
+        self.chat_log: deque = deque(maxlen=200)  # (handle|'*', text)
 
     def sess(self, uid: int) -> dict:
         return self.sessions.setdefault(uid, {"await": None, "ctx": {}, "term": None})
+
+    def touch_presence(self, update: Update) -> None:
+        s = self.sess(update.effective_user.id)
+        s["ts"] = time.time()
+        s["cid"] = update.effective_chat.id
+
+    def online_uids(self) -> list[int]:
+        cut = time.time() - ONLINE_SECS
+        return [uid for uid, s in self.sessions.items() if s.get("ts", 0) > cut]
+
+    def chatters(self) -> list[int]:
+        return [uid for uid, s in self.sessions.items() if s.get("chat")]
 
     # ── screen output ────────────────────────────────────────────────────
     async def show(self, update: Update, ctx, text: str, kbd: Kbd | None):
@@ -97,16 +114,19 @@ class BBS:
             "  select from the menu below",
         ]
         mail_label = f"[E] MAIL ({unread})" if unread else "[E] MAIL"
+        n_chat = len(self.chatters())
+        chat_label = f"[C] CHAT ({n_chat})" if n_chat else "[C] CHAT"
         rows = [
             [Btn("[M] MSG BASES", callback_data="boards"),
              Btn(mail_label, callback_data="mail:0")],
             [Btn("[F] FILE AREAS", callback_data="areas"),
              Btn("[O] ONELINERS", callback_data="ones")],
-            [Btn("[L] LAST CALLERS", callback_data="who"),
-             Btn("[U] USER LIST", callback_data="users:0")],
+            [Btn(chat_label, callback_data="chat"),
+             Btn("[L] LAST CALLERS", callback_data="who")],
+            [Btn("[U] USER LIST", callback_data="users:0")],
         ]
         if user["level"] >= 100:
-            rows.append([Btn("[S] SYSOP", callback_data="sysop")])
+            rows[-1].append(Btn("[S] SYSOP", callback_data="sysop"))
         rows.append([Btn("[G] LOGOFF", callback_data="logoff")])
         return screen("main menu", body, status_line(user), logo=True), Kbd(rows)
 
@@ -287,9 +307,61 @@ class BBS:
             " " + "·" * 30,
             "  FILE_ID.DIZ:",
         ] + wrap(f["descr"] or "(no description)", prefix="  ")[:12]
-        rows = [[Btn("[D] DOWNLOAD", callback_data=f"get:{f['id']}"),
-                 Btn("[Q] BACK", callback_data=f"area:{f['area_id']}:0")]]
+        top = [Btn("[D] DOWNLOAD", callback_data=f"get:{f['id']}")]
+        if asciiview.is_image_name(f["name"]):
+            top.append(Btn("[V] VIEW ASCII", callback_data=f"view:{f['id']}"))
+        rows = [top, [Btn("[Q] BACK", callback_data=f"area:{f['area_id']}:0")]]
         return screen("file info", body, status_line(user)), Kbd(rows)
+
+    # -- chat pit (multi-node teleconference) -----------------------------------
+    def scr_chat(self, user):
+        names = []
+        for uid in self.chatters():
+            u = self.db.user(uid)
+            if u:
+                names.append(u["handle"])
+        body = wrap("in the pit: " + (", ".join(names) or "nobody"), prefix=" ")
+        body.append(" " + "·" * 30)
+        lines: list[str] = []
+        for h, txt in self.chat_log:
+            if h == "*":
+                lines.append(f" * {trunc(txt, 30)}")
+            else:
+                lines += wrap(f"{h}> {txt}", prefix=" ")
+        body += lines[-16:] if lines else ["", "  dead air. say something."]
+        body += ["", "  just type to talk"]
+        rows = [[Btn("[Q] LEAVE", callback_data="menu")]]
+        return screen("chat pit", body, status_line(user)), Kbd(rows)
+
+    async def _chat_broadcast(self, bot) -> None:
+        """Live-update every chatter's terminal with the current chat screen."""
+        for uid in self.chatters():
+            s = self.sessions.get(uid)
+            u = self.db.user(uid)
+            if not (s and u and s.get("term") and s.get("cid")):
+                continue
+            text, kbd = self.scr_chat(u)
+            try:
+                await bot.edit_message_text(
+                    text, chat_id=s["cid"], message_id=s["term"],
+                    parse_mode=ParseMode.HTML, reply_markup=kbd)
+            except BadRequest as e:
+                if "not modified" not in str(e).lower():
+                    log.debug("chat broadcast to %s failed: %s", uid, e)
+
+    async def _chat_leave(self, user, ctx) -> None:
+        s = self.sess(user["id"])
+        if s.get("chat"):
+            s["chat"] = False
+            self.chat_log.append(("*", f"{user['handle']} left"))
+            nodelog.info("%s left chat", user["handle"])
+            await self._chat_broadcast(ctx.bot)
+
+    # -- ascii viewer -------------------------------------------------------------
+    def scr_ascii(self, user, lines: list[str], title: str, back: str):
+        body = [f" {l}" for l in lines] or ["  (nothing to see)"]
+        rows = [[Btn("[Q] BACK", callback_data=back)]]
+        return screen(trunc(title, 24), body, status_line(user)), Kbd(rows)
 
     # -- social ------------------------------------------------------------------
     def scr_ones(self, user):
@@ -304,7 +376,14 @@ class BBS:
         return screen("oneliners", body, status_line(user)), Kbd(rows)
 
     def scr_who(self, user):
-        body = [" handle        calls last seen", " " + "·" * 30]
+        online = []
+        for uid in self.online_uids():
+            u = self.db.user(uid)
+            if u:
+                online.append(u["handle"])
+        body = wrap("online now: " + (", ".join(online) or "just the wind"),
+                    prefix=" ")
+        body += ["", " handle        calls last seen", " " + "·" * 30]
         for u in self.db.last_callers(10):
             body.append(f" {trunc(u['handle'], 12):<13} {u['calls']:>4}"
                         f" {ts(u['last_call'], False)}")
@@ -356,6 +435,34 @@ class BBS:
         rows = [[Btn("[R] RECONNECT", callback_data="reconnect")]]
         return screen("carrier lost", body, ""), Kbd(rows)
 
+    async def _view_file(self, update, ctx, user, file_id: int):
+        """Render a file-area image as ASCII art."""
+        f = self.db.file(file_id)
+        if not f:
+            return self.scr_areas(user)
+        a = self.db.area(f["area_id"])
+        if a["min_level"] > user["level"]:
+            return self.scr_areas(user)
+        back = f"file:{file_id}"
+        src = f["tg_file_id"]
+        try:
+            if src.startswith("local:"):
+                data = (FILES_DIR / Path(src[6:]).name).read_bytes()
+            else:
+                if (f["size"] or 0) > asciiview.MAX_BYTES:
+                    return self.scr_ascii(user, ["too big for the viewer",
+                                                 "(20 MB getFile limit)"],
+                                          f["name"], back)
+                tg_file = await ctx.bot.get_file(src)
+                data = bytes(await tg_file.download_as_bytearray())
+            lines = asciiview.image_to_ascii(data)
+            nodelog.info("%s viewed #%s %s as ascii",
+                         user["handle"], f["id"], f["name"])
+        except Exception as e:
+            log.warning("ascii view of #%s failed: %s", file_id, e)
+            lines = ["could not decode that image."]
+        return self.scr_ascii(user, lines, f["name"], back)
+
     # ═════════════════════════ UPDATE HANDLERS ═══════════════════════════
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if update.effective_chat.type != "private":
@@ -366,9 +473,12 @@ class BBS:
             return
         s = self.sess(uid)
         s["term"] = None  # force a fresh terminal message on /start
+        self.touch_presence(update)
         if user:
             self.db.touch_call(uid)
             user = self.db.user(uid)
+            nodelog.info("CALL %s (tg id %s), call #%s",
+                         user["handle"], uid, user["calls"])
             text, kbd = self.scr_main(user)
         else:
             if not self.cfg.new_users_open and not self.db.has_invite(uid):
@@ -458,10 +568,14 @@ class BBS:
         if not user:
             await q.answer("no carrier. /start to log in.")
             return
+        self.touch_presence(update)
         s = self.sess(user["id"])
         data = q.data or "menu"
         cmd, *args = data.split(":")
         s["await"] = None  # any navigation aborts pending input
+        nodelog.info("%s: [%s]", user["handle"], data)
+        if cmd != "chat":
+            await self._chat_leave(user, ctx)
 
         try:
             if cmd == "menu":
@@ -538,7 +652,22 @@ class BBS:
                                 filename=f["name"],
                                 caption=f"#{f['id']} {f['name']} · "
                                         f"{f['downloads'] + 1} gets")
+                            nodelog.info("%s downloaded #%s %s",
+                                         user["handle"], f["id"], f["name"])
                 out = self.scr_file(user, int(args[0]))
+            elif cmd == "view":
+                out = await self._view_file(update, ctx, user, int(args[0]))
+            elif cmd == "chat":
+                if not s.get("chat"):
+                    s["chat"] = True
+                    self.chat_log.append(("*", f"{user['handle']} joined"))
+                    nodelog.info("%s joined chat", user["handle"])
+                s["await"] = "chat"
+                out = self.scr_chat(user)
+                await q.answer()
+                await self.show(update, ctx, *out)
+                await self._chat_broadcast(ctx.bot)
+                return
             elif cmd == "ones":
                 out = self.scr_ones(user)
             elif cmd == "addone":
@@ -578,6 +707,7 @@ class BBS:
         user = self.db.user(uid)
         if user and user["banned"]:
             return
+        self.touch_presence(update)
         s = self.sess(uid)
         mode = s["await"]
         text = (update.message.text or "").strip()
@@ -590,6 +720,12 @@ class BBS:
         except BadRequest:
             pass
 
+        if mode == "chat" and user:
+            self.chat_log.append((user["handle"], text[:200]))
+            nodelog.info("%s @chat: %s", user["handle"], trunc(text, 60))
+            await self._chat_broadcast(ctx.bot)
+            return
+
         out = None
         if mode == "handle":
             if self.db.user(uid):
@@ -601,12 +737,16 @@ class BBS:
             else:
                 user = self.db.create_user(uid, text)
                 s["await"] = None
+                nodelog.info("NEW USER %s (tg id %s, level %s)",
+                             user["handle"], uid, user["level"])
                 out = self.scr_main(user)
         elif not user:
             return
         elif mode == "post":
             mid = self.db.post(s["ctx"]["board"], uid, text[:MAX_BODY])
             s["await"] = None
+            nodelog.info("%s posted msg #%s to board %s",
+                         user["handle"], mid, s["ctx"]["board"])
             out = self.scr_msg(user, mid)
         elif mode == "reply":
             orig = self.db.message(s["ctx"]["msg"])
@@ -632,6 +772,7 @@ class BBS:
             to_id = s["ctx"]["to"]
             self.db.send_mail(uid, to_id, text[:MAX_BODY])
             s["await"] = None
+            nodelog.info("%s mailed user %s", user["handle"], to_id)
             out = self.scr_mail(user, 0)
             await self._notify_mail(ctx, to_id, user["handle"])
         elif mode == "one":
@@ -668,6 +809,40 @@ class BBS:
         except Exception:
             pass  # recipient may have blocked the bot
 
+    async def _ascii_reply(self, update, ctx, user, tg_file_id: str,
+                           size: int | None, title: str) -> None:
+        """Convert a sent image to ASCII and show it on the terminal."""
+        try:
+            await update.message.delete()
+        except BadRequest:
+            pass
+        if (size or 0) > asciiview.MAX_BYTES:
+            lines = ["too big for the viewer", "(20 MB getFile limit)"]
+        else:
+            try:
+                tg_file = await ctx.bot.get_file(tg_file_id)
+                data = bytes(await tg_file.download_as_bytearray())
+                lines = asciiview.image_to_ascii(data)
+                nodelog.info("%s ascii-viewed a sent image (%s)",
+                             user["handle"], title)
+            except Exception as e:
+                log.warning("ascii view failed: %s", e)
+                lines = ["could not decode that image."]
+        out = self.scr_ascii(user, lines, title, back="menu")
+        await self.show(update, ctx, *out)
+
+    # photos: instant ascii viewer -------------------------------------------------
+    async def on_photo(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        if update.effective_chat.type != "private":
+            return
+        user = self.caller(update)
+        if not user:
+            return
+        self.touch_presence(update)
+        photo = update.message.photo[-1]  # largest rendition
+        await self._ascii_reply(update, ctx, user, photo.file_id,
+                                photo.file_size, "your photo")
+
     # documents (uploads) --------------------------------------------------------
     async def on_document(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if update.effective_chat.type != "private":
@@ -675,10 +850,16 @@ class BBS:
         user = self.caller(update)
         if not user:
             return
+        self.touch_presence(update)
         s = self.sess(user["id"])
         area_id = s["ctx"].get("area")
         doc = update.message.document
         if not area_id:
+            # not in a file area: image documents go to the ascii viewer
+            if asciiview.is_image_name(doc.file_name or ""):
+                await self._ascii_reply(update, ctx, user, doc.file_id,
+                                        doc.file_size, doc.file_name or "image")
+                return
             await update.message.reply_text(
                 "<pre>open a FILE AREA first, then\nsend the document again.</pre>",
                 parse_mode=ParseMode.HTML)
@@ -688,6 +869,8 @@ class BBS:
             return
         fid = self.db.add_file(area_id, user["id"], doc.file_id,
                                doc.file_name or "unnamed.bin", doc.file_size or 0)
+        nodelog.info("%s uploaded #%s %s (%sk) to area %s", user["handle"],
+                     fid, doc.file_name, (doc.file_size or 0) // 1024, area_id)
         s["await"], s["ctx"] = "filedesc", {"area": area_id, "file": fid}
         try:
             await update.message.delete()
@@ -723,4 +906,5 @@ def build_app(cfg: Config) -> Application:
     app.add_handler(CallbackQueryHandler(bbs.on_button))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bbs.on_text))
     app.add_handler(MessageHandler(filters.Document.ALL, bbs.on_document))
+    app.add_handler(MessageHandler(filters.PHOTO, bbs.on_photo))
     return app

@@ -35,8 +35,16 @@ def main() -> None:
     db.set_file_descr(fid, "final cut / 4kb intro")
     db.add_oneliner(2, "the tower never sleeps")
 
+    # chat pit with some traffic
+    bbs.sessions[1] = {"await": "chat", "ctx": {}, "term": 1, "chat": True,
+                       "cid": 1, "ts": 1e12}
+    bbs.chat_log.append(("*", "st0rmlord joined"))
+    bbs.chat_log.append(("st0rmlord", "anyone alive on the nodes?"))
+    bbs.chat_log.append(("phreak", "always. what did you break today"))
+
     screens = {
         "welcome": bbs.scr_welcome(),
+        "chat": bbs.scr_chat(sysop),
         "main": bbs.scr_main(sysop),
         "boards": bbs.scr_boards(user),
         "board": bbs.scr_board(user, 1, 0),
@@ -68,6 +76,23 @@ def main() -> None:
     # sysop board is invisible in scr_boards for a normal user
     text, _ = bbs.scr_boards(user)
     assert "sysop office" not in text
+
+    # ascii viewer: generated gradient image -> ascii lines that fit a screen
+    from io import BytesIO
+
+    from PIL import Image
+
+    from tgbbs.asciiview import image_to_ascii
+    img = Image.new("RGB", (200, 320))
+    img.putdata([(3 * x % 256, y % 256, (x + y) % 256)
+                 for y in range(320) for x in range(200)])
+    buf = BytesIO()
+    img.save(buf, "PNG")
+    lines = image_to_ascii(buf.getvalue())
+    assert 0 < len(lines) <= 42 and max(len(l) for l in lines) <= 34
+    print("===== ascii viewer " + "=" * 47)
+    text, _ = bbs.scr_ascii(user, lines, "gradient.png", "menu")
+    print(strip_pre(text))
 
     print("ALL SELFTESTS PASSED")
 

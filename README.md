@@ -58,6 +58,15 @@ copy .env.example .env      # then paste your token from @BotFather
   it lands in that area; you'll be asked for a FILE_ID.DIZ description.
   `[D] DOWNLOAD` sends it back to any caller. (Bot API: up to ~50 MB
   per file, plenty for art packs and intros.)
+- **Chat pit** (`[C]`): live multi-node chat. Everyone currently in the
+  pit sees new lines appear on their terminal in real time; joins and
+  leaves are announced. The main menu shows how many are chatting.
+- **ASCII image viewer**: send the bot any photo and it comes back as
+  monochrome ASCII art on your terminal. Image files in file areas get
+  a `[V] VIEW ASCII` button (up to 20 MB, the Bot API getFile limit).
+- **Node log**: the console prints a classic sysop log of real caller
+  activity — calls, registrations, navigation, posts, mail, chat
+  lines, uploads, downloads and ascii views.
 
 ## Sysop
 
