@@ -84,6 +84,12 @@ copy .env.example .env      # then paste your token from @BotFather
 - **Chat pit** (`[C]`): live multi-node chat. Everyone currently in the
   pit sees new lines appear on their terminal in real time; joins and
   leaves are announced. The main menu shows how many are chatting.
+  The pit has a resident: **eliza** — Weizenbaum's 1966 pattern
+  matcher, NO AI, NO LLM, just regex and pronoun reflection (with
+  some scene flavor: ask her about the sysop, the dragon, or your
+  modem). She greets you when you're first in, always answers when
+  you're alone or say her name, and occasionally butts in otherwise.
+  `BBS_ELIZA=off` evicts her.
 - **ASCII image viewer**: send the bot any photo and it comes back as
   monochrome ASCII art on your terminal. Image files in file areas get
   a `[V] VIEW ASCII` button (up to 20 MB, the Bot API getFile limit).

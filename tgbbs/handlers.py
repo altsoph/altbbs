@@ -25,7 +25,7 @@ from telegram.ext import (
     filters,
 )
 
-from . import art, asciiview, echonet
+from . import art, asciiview, echonet, eliza
 from .config import FILES_DIR, Config
 from .db import DB
 from .doors import DOORS, DoorAPI
@@ -466,6 +466,8 @@ class BBS:
             u = self.db.user(uid)
             if u:
                 names.append(u["handle"])
+        if self.cfg.eliza_enabled:
+            names.append(eliza.HANDLE)  # the resident never leaves
         body = wrap("in the pit: " + (", ".join(names) or "nobody"), prefix=" ")
         body.append(" " + "·" * 30)
         lines: list[str] = []
@@ -507,6 +509,24 @@ class BBS:
             chatlog.info("* %s", text)
         else:
             chatlog.info("<%s> %s", who, text)
+
+    def _eliza_reply(self, text: str) -> str | None:
+        """Decide whether the resident answers this chat line."""
+        if not self.cfg.eliza_enabled:
+            return None
+        addressed = "eliza" in text.lower()
+        alone = len(self.chatters()) <= 1
+        if addressed or alone or random.random() < 0.15:
+            return eliza.respond(text)
+        return None
+
+    async def _eliza_say(self, bot, reply: str, delay: float = 0) -> None:
+        """She types slowly. It's 1966."""
+        if delay:
+            await asyncio.sleep(delay)
+        self._chat_add(eliza.HANDLE, reply)
+        nodelog.info("%s @chat: %s", eliza.HANDLE, trunc(reply, 60))
+        await self._chat_broadcast(bot)
 
     async def _chat_leave(self, user, ctx) -> None:
         s = self.sess(user["id"])
@@ -1081,9 +1101,14 @@ class BBS:
                     out = self.scr_areas(user)
             elif cmd == "chat":
                 if not s.get("chat"):
+                    was_empty = not self.chatters()
                     s["chat"] = True
                     self._chat_add("*", f"{user['handle']} joined")
                     nodelog.info("%s joined chat", user["handle"])
+                    if was_empty and self.cfg.eliza_enabled:
+                        asyncio.create_task(self._eliza_say(
+                            ctx.bot, eliza.greeting(),
+                            delay=random.uniform(1.5, 3.0)))
                 s["await"] = "chat"
                 out = self.scr_chat(user)
                 await self.show(update, ctx, *out)
@@ -1161,6 +1186,10 @@ class BBS:
             self._chat_add(user["handle"], text[:200])
             nodelog.info("%s @chat: %s", user["handle"], trunc(text, 60))
             await self._chat_broadcast(ctx.bot)
+            reply = self._eliza_reply(text)
+            if reply:
+                asyncio.create_task(self._eliza_say(
+                    ctx.bot, reply, delay=random.uniform(1.5, 3.5)))
             return
 
         out = None

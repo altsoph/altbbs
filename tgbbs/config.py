@@ -47,6 +47,7 @@ class Config:
     # echomail federation (shared Telegram channel as the hub)
     echo_channel: str = ""        # channel id (-100...) or @username
     echo_id: str = "ALTBBS"       # this system's unique network name
+    eliza_enabled: bool = True    # the chat pit's resident (1966, no AI)
 
     @classmethod
     def load(cls) -> "Config":
@@ -68,6 +69,8 @@ class Config:
         )
         web = os.environ.get("BBS_WEB", "auto").lower()
         cfg.web_enabled = web == "on" or (web != "off" and bool(cfg.web_url))
+        cfg.eliza_enabled = os.environ.get(
+            "BBS_ELIZA", "on").lower() not in ("off", "0", "no")
         cfg.echo_channel = os.environ.get("BBS_ECHO_CHANNEL", "")
         cfg.echo_id = (os.environ.get("BBS_ECHO_ID", "") or
                        re.sub(r"[^A-Z0-9]", "",

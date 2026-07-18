@@ -235,6 +235,27 @@ def main() -> None:
     print("===== text preview (zine, page 1) " + "=" * 31)
     print(strip_pre(text))
 
+    # eliza: 1966 pattern engine + chat gating
+    from tgbbs import eliza as _el
+    assert _el.reflect("i love my modem") == "you love your modem"
+    r = _el.respond("i am lonely tonight")
+    assert "lonely tonight" in r          # reflection survives into reply
+    r = _el.respond("eliza: i need my modem")
+    assert "your modem" in r              # name-address stripped, reflected
+    assert _el.respond("do computers dream?")  # keyword rule, no crash
+    assert _el.respond("zxqwv blorp")     # gibberish -> fallback, no crash
+    # gating: alone in the pit -> she always answers; disabled -> never
+    bbs.sessions.clear()
+    bbs.sessions[1] = {"await": "chat", "ctx": {}, "term": 1, "chat": True,
+                       "cid": 1, "ts": 1e12}
+    assert bbs._eliza_reply("hello there") is not None
+    bbs.cfg.eliza_enabled = False
+    assert bbs._eliza_reply("hello there") is None
+    bbs.cfg.eliza_enabled = True
+    text, _ = bbs.scr_chat(sysop)
+    assert "eliza" in text                # resident listed in the pit
+    print("eliza OK: no ai, no llm, just regex")
+
     # oracle: ask -> forecast (crowd hidden first) -> resolve -> scores
     assert "oracle" in DOORS
     bbs._door_screen(user, "oracle", "new")
