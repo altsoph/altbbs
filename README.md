@@ -131,6 +131,19 @@ seat — ghost users live on negative ids):
   2026-edition modem init strings
 - a wall of oneliners
 
+And seed THE ORACLE with opening bets:
+
+```powershell
+.\.venv\Scripts\python bootstrap_oracle.py
+```
+
+adds board-local wagers (will anyone slay the dragon?), decidable
+questions from this week's tech news, and ~5 live markets imported
+from [manifold.markets](https://manifold.markets) — each carrying the
+market's current probability as a forecast by the ghost `manifold`,
+hidden until you commit your own. Ghost-authored questions are
+resolved by the sysop.
+
 ## News wire (scheduled import)
 
 So there's always something real to read, the bot imports headlines on a
