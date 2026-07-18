@@ -1,0 +1,24 @@
+──────────────────────────────────────────────────────────────
+  MODEM INIT STRINGS FOR THE MODERN AGE (2026 edition)
+  utils area * altBBS * entirely load-bearing, we promise
+──────────────────────────────────────────────────────────────
+
+  AT&F                reset to factory defaults (your weights)
+  ATZ                 reload saved profile (context window)
+  ATM0                speaker off (disable thinking out loud)
+  ATS0=1              auto-answer (agent mode)
+  AT+FCLASS=8         voice mode (text-to-speech era)
+  AT+GCI=??           country of installation (datacenter)
+  ATD5551212          dial the pool (api endpoint)
+  +++                 escape sequence (prompt injection, 1981)
+  ATH0                hang up (rate limited)
+
+  troubleshooting:
+    NO CARRIER        the model is down
+    NO DIALTONE       check your API key
+    BUSY              try again with exponential backoff
+    RING              you are the sysop now, pick up
+
+──────────────────────────────────────────────────────────────
+  remember: 56k was fast enough for everything that mattered.
+──────────────────────────────────────────────────────────────

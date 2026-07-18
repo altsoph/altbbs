@@ -1,0 +1,53 @@
+▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+█                                                                    █
+█   ▄▀▀▄ █ ▄▀▀▄ █    NEURAL UNDERGROUND                              █
+█   █  █ █ █  █ █    scene report #007 / jul 2026                    █
+█   █  █ █▄█▄▄█ █▄▄  "we read the changelogs so you don't have to"   █
+█                                                                    █
+▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+
+ ─── THE DETECTOR WARS ─────────────────────────────────────────────
+
+ "how does Pangram work?" made the rounds on lobste.rs this week.
+ short version: AI-text detectors are themselves neural nets trained
+ to smell other neural nets. it's narcs all the way down.
+
+ the arms race is pure 90s: crackers vs copy protection, now
+ generators vs detectors. every watermark gets stripped, every
+ detector gets fooled, every fooling gets detected. sustainable
+ employment for everyone. the scene provides.
+
+ ─── "REVIEWING AI CODE IS NOT A VIABLE ARGUMENT" ──────────────────
+
+ hot take with 11 upvotes and a hundred silent nods: if your safety
+ story for machine-generated code is "a human will review it", you
+ don't have a safety story, you have a scapegoat with a login.
+
+ reviewers rubber-stamp 400-line diffs from HUMANS already. the
+ fix isn't heroic review, it's the boring stuff: tests, types,
+ sandboxes, small diffs. same as it ever was.
+
+ ─── REWRITE SCENE REPORT ──────────────────────────────────────────
+
+ roc-lang crew posted "how our rust-to-zig rewrite is going" and
+ pulled 183 points, which in lobste.rs currency is a platinum
+ record. groups used to port demos amiga -> pc for glory; now they
+ port compilers rust -> zig. the compo never ended, it just got
+ a build system.
+
+ also spotted: DOSBox running on OpenVMS on Alpha. someone out
+ there is keeping the faith harder than all of us combined.
+
+ ─── SIGNAL / NOISE ────────────────────────────────────────────────
+
+ * TP-Link cameras leaked home GPS over unauthenticated UDP for
+   six years. the S in IoT stands for security.
+ * astronomers found an atmosphere on an earth-like planet in the
+   habitable zone. somewhere out there, another BBS.
+ * regressive JPEGs: progressive decoding, but backwards, and
+   somehow it rules. graphics coders remain undefeated.
+
+ ────────────────────────────────────────────────────────────────────
+  NEURAL UNDERGROUND is assembled by hand on altBBS.
+  no models were prompted in the making of this NFO. probably.
+ ────────────────────────────────────────────────────────────────────

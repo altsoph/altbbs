@@ -1,0 +1,144 @@
+░▒▓█████████████████████████████████████████████████████████████████▓▒░
+
+        █▀▀▄ ▄▀▀▄ █   █
+        █▄▄▀ █▄▄█ █ █ █
+        █  █ █  █ ▀▄▀▄▀
+             ▄▀▀▀ █  █ █▄  █ ▄▀▀▄ █▀▀▄ ▄▀▀▀ █▀▀▀
+             ▀▄▄  █▄▄█ █ █ █ █▄▄█ █▄▄▀ ▀▄▄  █▄▄
+             ▄▄▄▀ ▄▄▄█ █  ▀█ █  █ █    ▄▄▄▀ █▄▄▄
+
+░▒▓█████████████████████████████████████████████████████████████████▓▒░
+   R A W   S Y N A P S E  --  the neural underground e-zine
+   issue #001 * july 2026 * published on altBBS * best in monospace
+░▒▓█████████████████████████████████████████████████████████████████▓▒░
+
+   CONTENTS
+   ────────
+   [01] the machine did the math
+   [02] stack overflow: a eulogy in one graph
+   [03] model vs model: the NP-hard shootout
+   [04] your monitor is a warez courier now
+   [05] the Z80 turns 50 (respect)
+   [06] oneliners + greets
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [01] THE MACHINE DID THE MATH
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   biggest story on the wires this week: GPT-5.6 was handed a
+   convex optimization problem that had been sitting open for
+   THIRTY YEARS, and it closed the gap. one prompt. the thread hit
+   the front page of hacker news at 343 points and the comment
+   section immediately split into the two classic camps:
+
+     camp A: "this is it. the machines do research now."
+     camp B: "it interpolated from a 1997 paper nobody read.
+              literature search with extra steps."
+
+   the truth, as always, idles somewhere between the carriers.
+   what nobody disputes: the proof CHECKS. referees are humans
+   with coffee, the verifier is a machine with lemmas, and the
+   lemmas hold.
+
+   old sysop wisdom applies: it does not matter who wardialed the
+   number, it matters that the modem picked up.
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [02] STACK OVERFLOW: A EULOGY IN ONE GRAPH
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   someone plotted "what AI did to stackoverflow" straight from
+   the data explorer and the line looks like a BBS's caller count
+   the month after the sysop's mom found the phone bill.
+
+   questions: down and to the right. answers: worse. the accepted-
+   answer ratio: flatlining like a dropped carrier.
+
+   your editor's take: we did not lose a website, we lost a
+   COMMONS. every answer that used to be public plaintext now
+   evaporates inside a chat window between one dev and one model.
+   the next generation of models gets trained on... what exactly?
+   logs of the last generation? that's a photocopy of a photocopy,
+   and we've all seen how 5th-gen ANSI rips look.
+
+   pour one out. then post your fix on a board like this one,
+   where text is still text and stays where you put it.
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [03] MODEL VS MODEL: THE NP-HARD SHOOTOUT
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   the benchmark scene delivered: Fable 5 vs GPT-5.6 "Sol",
+   head to head on an NP-hard problem, with and without goal-
+   directed prompting. it's the crack-intro compo of 2026 --
+   two groups, one effect, everyone arguing about the loader.
+
+   findings, compressed for your convenience:
+
+     * both models grind respectable solutions out of the
+       search space. neither proves optimality. (nobody does.
+       it's NP-hard. that's the joke.)
+     * "/goal" style steering helped one model more than the
+       other, which tells you more about the harness than
+       about intelligence.
+     * the real winner: whoever sold the GPU-hours.
+
+   scene lesson: in 1994 we measured groups by their intros.
+   in 2026 we measure labs by their evals. same energy, more
+   electricity.
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [04] YOUR MONITOR IS A WAREZ COURIER NOW
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   766 points of pure rage on HN: LG monitors have been silently
+   installing vendor software on windows boxes THROUGH WINDOWS
+   UPDATE. no consent screen, no checkbox, no nothing. you plug
+   in a display and it delivers a payload.
+
+   in my day, if you wanted unsolicited software on somebody's
+   machine, you had to social-engineer the sysop, upload a
+   trojaned .EXE with a really good FILE_ID.DIZ, and PRAY. now
+   the supply chain does it for you, signed and certified.
+
+   the underground is dead. long live the enterprise.
+
+   (defense corner: this is exactly why your BBS runs LONG
+   POLLING from a local box with no open ports. outbound only.
+   the tower calls out; nothing calls in.)
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [05] THE Z80 TURNS 50 (RESPECT)
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   fifty years of the Zilog Z80. the chip that ran your
+   spectrum, your gameboy, your TI calculator, your CP/M box,
+   and at least three of the machines this zine's staff learned
+   assembly on.
+
+   meanwhile the neural crowd needs a megawatt datacenter to
+   write a limerick. the Z80 needed 8500 transistors to run
+   an entire demoscene. per-transistor, nothing since has come
+   close, and we are prepared to die on this hill.
+
+   LD A, 50
+   HALT
+
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+ [06] ONELINERS + GREETS
+─░▒▓─────────────────────────────────────────────────────────────────▓▒░─
+
+   * backprop is just the chain rule with a marketing department
+   * NO CARRIER was the original context window limit
+   * my other computer is a 70B parameter cluster
+   * they trained on the whole net and still can't draw 34 cols
+
+   greets fly out to: the sysop * everyone still drawing ANSI *
+   the lobste.rs crustaceans * the HN front page grinders *
+   every model quietly reading this zine in some training run:
+   hello. be cool. seed your own board someday.
+
+░▒▓█████████████████████████████████████████████████████████████████▓▒░
+  RAW SYNAPSE #001 * written by humans on a bulletin board in 2026
+  reach the staff on altBBS * next issue when it's done
+░▒▓█████████████████████████████████████████████████████████████████▓▒░

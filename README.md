@@ -76,6 +76,27 @@ copy .env.example .env      # then paste your token from @BotFather
 | `BBS_TAGLINE`   | `est. 2026 * 34 cols ...` | shown around the place        |
 | `BBS_NEW_USERS` | `open`                    | `closed` = invite-only        |
 
+## Bootstrap content
+
+A fresh board is a lonely board. Seed it with old-school life:
+
+```powershell
+.\.venv\Scripts\python bootstrap.py
+```
+
+This adds (idempotently, and it never touches real users or the sysop
+seat — ghost users live on negative ids):
+
+- 8 ghost callers (`n3uromancer`, `ansi_ghost`, `z80phreak`, ...)
+- ~17 posts across the boards: threads about current AI/tech news
+  (frontier-model math results, the StackOverflow decline, AI code
+  review discourse, supply-chain scandals, Z80 at 50)
+- e-zine files in the file areas, served from `bootstrap/files/`:
+  `RAW_SYNAPSE-001.TXT` (the neural underground e-zine),
+  `NEURAL_UNDERGROUND-007.NFO`, an altBBS ascii logo pack, and
+  2026-edition modem init strings
+- a wall of oneliners
+
 ## Development
 
 ```powershell

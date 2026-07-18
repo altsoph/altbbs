@@ -2,6 +2,7 @@
 
 import logging
 import re
+from pathlib import Path
 
 from telegram import (
     InlineKeyboardButton as Btn,
@@ -20,7 +21,7 @@ from telegram.ext import (
 )
 
 from . import art
-from .config import Config
+from .config import FILES_DIR, Config
 from .db import DB
 from .render import esc, screen, status_line, trunc, ts, wrap
 
@@ -254,8 +255,9 @@ class BBS:
             body.append("  no files yet. upload one!")
         for f in fs:
             kb = f["size"] // 1024
+            diz1 = (f["descr"] or "(no description)").splitlines()[0]
             body.append(f" #{f['id']:<3} {trunc(f['name'], 20):<20} {kb:>5}k")
-            body.append(f"   {trunc(f['descr'] or '(no description)', 30)}")
+            body.append(f"   {trunc(diz1, 30)}")
             rows.append([Btn(f"#{f['id']} {trunc(f['name'], 24)}",
                              callback_data=f"file:{f['id']}")])
         nav = []
@@ -498,10 +500,17 @@ class BBS:
                     if a["min_level"] <= user["level"]:
                         self.db.bump_downloads(f["id"])
                         await q.answer("transferring...")
-                        await ctx.bot.send_document(
-                            update.effective_chat.id, f["tg_file_id"],
-                            caption=f"#{f['id']} {f['name']} · "
-                                    f"{f['downloads'] + 1} gets")
+                        src = f["tg_file_id"]
+                        if src.startswith("local:"):
+                            # bundled file served from disk (bootstrap content)
+                            path = FILES_DIR / Path(src[6:]).name
+                            src = path.open("rb") if path.is_file() else None
+                        if src is not None:
+                            await ctx.bot.send_document(
+                                update.effective_chat.id, src,
+                                filename=f["name"],
+                                caption=f"#{f['id']} {f['name']} · "
+                                        f"{f['downloads'] + 1} gets")
                 out = self.scr_file(user, int(args[0]))
             elif cmd == "ones":
                 out = self.scr_ones(user)

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# bundled bootstrap files, served when a DB record's tg_file_id is "local:<name>"
+FILES_DIR = ROOT / "bootstrap" / "files"
 
 
 def _load_dotenv(path: Path) -> None:

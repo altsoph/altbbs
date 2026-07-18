@@ -106,8 +106,10 @@ class DB:
             "SELECT * FROM users WHERE handle=? COLLATE NOCASE", (handle,)).fetchone()
 
     def create_user(self, tg_id: int, handle: str):
-        # very first caller becomes the sysop
-        first = self.conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"] == 0
+        # very first real caller becomes the sysop
+        # (bootstrap/system users have negative ids and don't count)
+        first = self.conn.execute(
+            "SELECT COUNT(*) c FROM users WHERE id > 0").fetchone()["c"] == 0
         level = 255 if first else 10
         ts = now()
         self.conn.execute(
@@ -163,7 +165,7 @@ class DB:
     def board_messages(self, board_id: int, limit: int, offset: int):
         return self.conn.execute(
             "SELECT m.*, u.handle FROM messages m JOIN users u ON u.id=m.author_id "
-            "WHERE board_id=? ORDER BY m.id DESC LIMIT ? OFFSET ?",
+            "WHERE board_id=? ORDER BY m.created DESC, m.id DESC LIMIT ? OFFSET ?",
             (board_id, limit, offset)).fetchall()
 
     def board_msg_count(self, board_id: int) -> int:
@@ -177,11 +179,15 @@ class DB:
 
     def msg_neighbors(self, msg):
         prev = self.conn.execute(
-            "SELECT id FROM messages WHERE board_id=? AND id<? ORDER BY id DESC LIMIT 1",
-            (msg["board_id"], msg["id"])).fetchone()
+            "SELECT id FROM messages WHERE board_id=? "
+            "AND (created<? OR (created=? AND id<?)) "
+            "ORDER BY created DESC, id DESC LIMIT 1",
+            (msg["board_id"], msg["created"], msg["created"], msg["id"])).fetchone()
         nxt = self.conn.execute(
-            "SELECT id FROM messages WHERE board_id=? AND id>? ORDER BY id LIMIT 1",
-            (msg["board_id"], msg["id"])).fetchone()
+            "SELECT id FROM messages WHERE board_id=? "
+            "AND (created>? OR (created=? AND id>?)) "
+            "ORDER BY created, id LIMIT 1",
+            (msg["board_id"], msg["created"], msg["created"], msg["id"])).fetchone()
         return (prev["id"] if prev else None, nxt["id"] if nxt else None)
 
     def post(self, board_id: int, author_id: int, body: str, reply_to=None) -> int:
@@ -239,7 +245,7 @@ class DB:
     def area_files(self, area_id: int, limit: int, offset: int):
         return self.conn.execute(
             "SELECT f.*, u.handle FROM files f JOIN users u ON u.id=f.uploader_id "
-            "WHERE area_id=? ORDER BY f.id DESC LIMIT ? OFFSET ?",
+            "WHERE area_id=? ORDER BY f.created DESC, f.id DESC LIMIT ? OFFSET ?",
             (area_id, limit, offset)).fetchall()
 
     def area_file_count(self, area_id: int) -> int:
