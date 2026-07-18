@@ -6,30 +6,27 @@
 <title>altBBS // CRT</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-  :root { --ph: #3aff6e; --ph-dim: #1d5c32; --bg: #030503; }
+  :root { --ph: #3aff6e; --ph-dim: #1d5c32; }
   * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); overflow:hidden;
+  html, body { margin:0; height:100%; background:#000; overflow:hidden;
                font-family: "Cascadia Mono","IBM Plex Mono",Consolas,Menlo,monospace; }
-  #bezel { position:fixed; inset:0; display:flex; flex-direction:column;
-           background: radial-gradient(ellipse 120% 100% at 50% 40%, #071307 0%, #020402 78%, #000 100%);
-           border-radius: 18px; }
-  #crt { flex:1; overflow-y:auto; padding:12px 8px 4px; -webkit-overflow-scrolling:touch; }
-  #screen { margin:0; font-family:inherit; font-size:13px; line-height:1.28;
+  #bezel { position:fixed; inset:0; display:flex; flex-direction:column; background:#000; }
+  #crt { flex:1; overflow-y:auto; padding:4px; -webkit-overflow-scrolling:touch;
+         display:flex; justify-content:center; align-items:flex-start; }
+  #gl { display:block; }
+  /* fallback path (no WebGL): plain pre + css overlay */
+  #screen { display:none; margin:0; font-family:inherit; font-size:13px; line-height:1.28;
             color:var(--ph); white-space:pre;
-            text-shadow: 0 0 4px rgba(58,255,110,.55), 0 0 14px rgba(58,255,110,.22);
-            transition: opacity .06s; }
-  #screen.flick { opacity:.25; }
+            text-shadow: 0 0 4px rgba(58,255,110,.55), 0 0 14px rgba(58,255,110,.22); }
   #ruler { position:absolute; left:-9999px; top:0; margin:0;
            font-family:inherit; white-space:pre; visibility:hidden; }
-  /* scanlines + vignette + slow flicker */
-  #fx { pointer-events:none; position:fixed; inset:0; border-radius:18px;
+  #fx { display:none; pointer-events:none; position:fixed; inset:0;
         background:
           repeating-linear-gradient(0deg, rgba(0,0,0,.25) 0 1px, transparent 1px 3px),
           radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.6) 100%); }
-  #fx::after { content:""; position:absolute; inset:0;
-        background: rgba(140,255,170,.035); animation: flicker 5s infinite; }
-  @keyframes flicker { 0%,100%{opacity:1} 90%{opacity:1} 91%{opacity:.4}
-                       92%{opacity:1} 96%{opacity:.7} 97%{opacity:1} }
+  body.nogl #screen { display:block; }
+  body.nogl #fx { display:block; }
+  body.nogl #gl { display:none; }
   #keys { display:flex; flex-wrap:wrap; gap:5px; padding:6px 8px; }
   #keys button { background:#04170a; border:1px solid var(--ph-dim); color:var(--ph);
         font: 11px/1 inherit; padding:8px 9px; border-radius:3px; cursor:pointer;
@@ -42,18 +39,15 @@
   #in::placeholder { color:#1f7a3d; }
   #send { background:#04170a; border:1px solid var(--ph-dim); color:var(--ph);
         font: 12px inherit; padding:9px 12px; border-radius:3px; cursor:pointer; }
-  .boot { animation: bootin .8s steps(12) both; }
-  @keyframes bootin { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0); } }
 </style>
 </head>
 <body>
 <div id="bezel">
-  <div id="crt"><pre id="screen" class="boot">
-   ATDT ALTBBS
-   CONNECT 14400/ARQ
-
-   dialing the tower...
-</pre><pre id="ruler" aria-hidden="true"></pre></div>
+  <div id="crt">
+    <canvas id="gl"></canvas>
+    <pre id="screen"></pre>
+    <pre id="ruler" aria-hidden="true"></pre>
+  </div>
   <div id="keys"></div>
   <div id="inbar">
     <input id="in" autocomplete="off" autocapitalize="off" spellcheck="false"
@@ -71,39 +65,217 @@
   var ws = null, backoff = 1500;
 
   function el(id) { return document.getElementById(id); }
-  function fit() {
-    // scale the font so the widest screen line fills the CRT width
-    var scr = el("screen"), crt = el("crt"), ruler = el("ruler");
+
+  /* ================= CRT renderer =====================================
+     Text is drawn to an offscreen 2D canvas, which feeds a WebGL CRT
+     shader: curvature, scanlines, bloom, rgb shift, vignette, flicker.
+     Shader adapted from github.com/gingerbeardman/webgl-crt-shader (MIT).
+  ===================================================================== */
+  var FRAG = [
+    "precision mediump float;",
+    "uniform sampler2D tDiffuse;",
+    "uniform float scanlineIntensity, scanlineCount, time, brightness,",
+    "  contrast, saturation, bloomIntensity, bloomThreshold, rgbShift,",
+    "  adaptiveIntensity, vignetteStrength, curvature, flickerStrength;",
+    "varying vec2 vUv;",
+    "const float PI = 3.14159265;",
+    "const vec3 LUMA = vec3(0.299, 0.587, 0.114);",
+    "vec2 curveRemapUV(vec2 uv, float c) {",
+    "  vec2 xy = uv * 2.0 - 1.0;",
+    "  float d = dot(xy, xy);",
+    "  xy = xy * (1.0 + d * c * 0.25);",
+    "  return xy * 0.5 + 0.5;",
+    "}",
+    "vec4 sampleBloom(sampler2D t, vec2 uv, float r, vec4 c0) {",
+    "  vec4 c = c0 * 0.4;",
+    "  c += (texture2D(t, uv + vec2(r, 0.)) + texture2D(t, uv - vec2(r, 0.))",
+    "      + texture2D(t, uv + vec2(0., r)) + texture2D(t, uv - vec2(0., r))) * 0.15;",
+    "  return c;",
+    "}",
+    "float vignetteApprox(vec2 uv, float s) {",
+    "  vec2 v = uv * 2.0 - 1.0;",
+    "  float d = max(abs(v.x), abs(v.y));",
+    "  return 1.0 - d * d * s;",
+    "}",
+    "void main() {",
+    "  vec2 uv = vUv;",
+    "  if (curvature > 0.001) {",
+    "    uv = curveRemapUV(uv, curvature);",
+    "    if (uv.x < 0. || uv.x > 1. || uv.y < 0. || uv.y > 1.) {",
+    "      gl_FragColor = vec4(0., 0., 0., 1.); return;",
+    "    }",
+    "  }",
+    "  vec4 pixel = texture2D(tDiffuse, uv);",
+    "  if (bloomIntensity > 0.001) {",
+    "    float pl = dot(pixel.rgb, LUMA);",
+    "    if (pl > bloomThreshold * 0.5) {",
+    "      vec4 b = sampleBloom(tDiffuse, uv, 0.005, pixel);",
+    "      b.rgb *= brightness;",
+    "      float bl = dot(b.rgb, LUMA);",
+    "      pixel.rgb += b.rgb * (bloomIntensity * max(0., (bl - bloomThreshold) * 1.5));",
+    "    }",
+    "  }",
+    "  if (rgbShift > 0.005) {",
+    "    float sh = rgbShift * 0.005;",
+    "    pixel.r += texture2D(tDiffuse, vec2(uv.x + sh, uv.y)).r * 0.08;",
+    "    pixel.b += texture2D(tDiffuse, vec2(uv.x - sh, uv.y)).b * 0.08;",
+    "  }",
+    "  pixel.rgb *= brightness;",
+    "  float lum = dot(pixel.rgb, LUMA);",
+    "  pixel.rgb = (pixel.rgb - 0.5) * contrast + 0.5;",
+    "  pixel.rgb = mix(vec3(lum), pixel.rgb, saturation);",
+    "  float mask = 1.0;",
+    "  if (scanlineIntensity > 0.001) {",
+    "    float sp = abs(sin(uv.y * scanlineCount * PI));",
+    "    float af = 1.0 - (sin(uv.y * 30.0) * 0.5 + 0.5) * adaptiveIntensity * 0.2;",
+    "    mask *= 1.0 - sp * scanlineIntensity * af;",
+    "  }",
+    "  if (flickerStrength > 0.001) mask *= 1.0 + sin(time * 110.0) * flickerStrength;",
+    "  if (vignetteStrength > 0.001) mask *= vignetteApprox(uv, vignetteStrength);",
+    "  pixel.rgb *= mask;",
+    "  gl_FragColor = vec4(pixel.rgb, 1.0);",
+    "}"].join("\n");
+  var VERT =
+    "attribute vec2 aPos; varying vec2 vUv;" +
+    "void main(){ vUv = vec2(aPos.x*0.5+0.5, 0.5-aPos.y*0.5);" +
+    "  gl_Position = vec4(aPos, 0., 1.); }";
+
+  var TUNE = { scanlineIntensity: 0.22, brightness: 1.15, contrast: 1.05,
+               saturation: 1.1, bloomIntensity: 0.35, bloomThreshold: 0.4,
+               rgbShift: 0.35, adaptiveIntensity: 0.5, vignetteStrength: 0.32,
+               curvature: 0.16, flickerStrength: 0.012 };
+
+  var txt = document.createElement("canvas");
+  var tctx = txt.getContext("2d");
+  var lastText = "";
+  var GL = (function () {
+    var c = el("gl");
+    var gl = c.getContext("webgl", { antialias: false, premultipliedAlpha: false })
+          || c.getContext("experimental-webgl");
+    if (!gl) return null;
+    function sh(type, src) {
+      var s = gl.createShader(type);
+      gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+        console.error(gl.getShaderInfoLog(s)); return null;
+      }
+      return s;
+    }
+    var vs = sh(gl.VERTEX_SHADER, VERT), fs = sh(gl.FRAGMENT_SHADER, FRAG);
+    if (!vs || !fs) return null;
+    var pr = gl.createProgram();
+    gl.attachShader(pr, vs); gl.attachShader(pr, fs); gl.linkProgram(pr);
+    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return null;
+    gl.useProgram(pr);
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(pr, "aPos");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    var tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    var U = {};
+    ["tDiffuse", "scanlineIntensity", "scanlineCount", "time", "brightness",
+     "contrast", "saturation", "bloomIntensity", "bloomThreshold", "rgbShift",
+     "adaptiveIntensity", "vignetteStrength", "curvature", "flickerStrength"
+    ].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+    Object.keys(TUNE).forEach(function (k) { gl.uniform1f(U[k], TUNE[k]); });
+    gl.uniform1i(U.tDiffuse, 0);
+    return {
+      canvas: c,
+      upload: function () {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, txt);
+      },
+      setScan: function (n) { gl.uniform1f(U.scanlineCount, n); },
+      draw: function (t) {
+        gl.viewport(0, 0, c.width, c.height);
+        gl.uniform1f(U.time, t);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+    };
+  })();
+  if (!GL) document.body.className = "nogl";
+
+  var FPX = 26, LH = Math.round(26 * 1.3), PADX = 3, PADY = 2;
+  function renderText(text) {
+    lastText = text;
+    if (!GL) { fallbackRender(text); return; }
+    var lines = text.split("\n");
+    tctx.font = FPX + 'px "Cascadia Mono","IBM Plex Mono",Consolas,Menlo,monospace';
+    var cw = tctx.measureText("X").width;
     var cols = 34;
-    (scr.textContent || "").split("\n").forEach(function (l) {
-      if (l.length > cols) cols = l.length;
+    lines.forEach(function (l) { if (l.length > cols) cols = l.length; });
+    txt.width = Math.ceil((cols + PADX * 2) * cw);
+    txt.height = (lines.length + PADY * 2) * LH;
+    tctx.fillStyle = "#020503";
+    tctx.fillRect(0, 0, txt.width, txt.height);
+    tctx.font = FPX + 'px "Cascadia Mono","IBM Plex Mono",Consolas,Menlo,monospace';
+    tctx.textBaseline = "top";
+    tctx.shadowColor = "rgba(58,255,110,0.55)";
+    tctx.shadowBlur = 5;
+    tctx.fillStyle = "#49ff7c";
+    lines.forEach(function (l, i) {
+      tctx.fillText(l, PADX * cw, (i + PADY) * LH);
     });
+    GL.upload();
+    GL.setScan((lines.length + PADY * 2) * 2);
+    console.log("[crt] lines=" + lines.length + " cols=" + cols +
+                " cw=" + cw.toFixed(2) + " tex=" + txt.width + "x" + txt.height);
+    layout();
+  }
+  function layout() {
+    if (!GL || !txt.width) return;
+    var crt = el("crt"), c = GL.canvas;
+    var availW = crt.clientWidth - 8, availH = crt.clientHeight - 8;
+    var aspect = txt.height / txt.width;
+    var w = availW, h = Math.round(w * aspect);
+    if (h > availH && availH > 60) { h = availH; w = Math.round(h / aspect); }
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.style.width = w + "px"; c.style.height = h + "px";
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+  }
+  (function loop(t) {
+    if (GL) GL.draw((t || 0) / 1000);
+    requestAnimationFrame(loop);
+  })(0);
+
+  /* fallback: plain <pre> with autoscaled font */
+  function fallbackRender(text) {
+    var scr = el("screen"), ruler = el("ruler");
+    scr.textContent = text;
+    var cols = 34;
+    text.split("\n").forEach(function (l) { if (l.length > cols) cols = l.length; });
     ruler.style.fontSize = "100px";
     ruler.textContent = Array(51).join("X");
-    var cw = ruler.getBoundingClientRect().width / 50;  // px/char @100px
+    var cw = ruler.getBoundingClientRect().width / 50;
     ruler.textContent = "";
-    var avail = crt.clientWidth - 20;
-    var fs = Math.floor(100 * avail / (cols * cw));
+    var fs = Math.floor(100 * (el("crt").clientWidth - 20) / (cols * cw));
     scr.style.fontSize = Math.max(9, Math.min(fs, 30)) + "px";
   }
-  var fitTimer = null;
+  var rsTimer = null;
   window.addEventListener("resize", function () {
-    clearTimeout(fitTimer); fitTimer = setTimeout(fit, 120);
+    clearTimeout(rsTimer);
+    rsTimer = setTimeout(function () { renderText(lastText); }, 120);
   });
-  function setScreen(html) {
-    var scr = el("screen");
-    scr.classList.add("flick");
-    setTimeout(function () {
-      var wrap = document.createElement("div");
-      wrap.innerHTML = html;
-      var pre = wrap.querySelector("pre") || wrap;
-      scr.textContent = "";
-      scr.innerHTML = pre.innerHTML;
-      scr.classList.remove("flick");
-      fit();
-      el("crt").scrollTop = 0;
-    }, 60);
+  // the hotkey bar changes height when buttons arrive/wrap -- refit then too
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { layout(); }).observe(el("crt"));
   }
+
+  /* ================= BBS wire protocol ================================ */
+  function htmlToText(html) {
+    var wrap = document.createElement("div");
+    wrap.innerHTML = html;
+    return wrap.textContent || "";
+  }
+  function setScreen(html) { renderText(htmlToText(html)); el("crt").scrollTop = 0; }
   function setKeys(rows) {
     var k = el("keys");
     k.innerHTML = "";
@@ -127,13 +299,14 @@
     };
     ws.onmessage = function (ev) {
       var m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m.error) { setScreen("<pre>\n   NO CARRIER\n\n   " + m.error + "</pre>"); setKeys([]); return; }
+      if (m.error) { renderText("\n   NO CARRIER\n\n   " + m.error); setKeys([]); return; }
       if (m.screen) setScreen(m.screen);
       setKeys(m.buttons);
+      requestAnimationFrame(function () { layout(); });
     };
     ws.onclose = function () {
       setKeys([]);
-      el("screen").innerHTML += "\n   +++ NO CARRIER (redialing...)";
+      renderText(lastText + "\n   +++ NO CARRIER (redialing...)");
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 15000);
     };
@@ -151,7 +324,8 @@
   document.addEventListener("keydown", function (e) {
     if (document.activeElement !== el("in") && e.key.length === 1) el("in").focus();
   });
-  fit();
+
+  renderText("\n   ATDT ALTBBS\n   CONNECT 14400/ARQ\n\n   dialing the tower...\n");
   connect();
 })();
 </script>

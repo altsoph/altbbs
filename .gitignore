@@ -4,6 +4,7 @@ __pycache__/
 .env
 data/
 tmp/
+tmp/
 # private -- never publish
 notes.txt
 *.opml
