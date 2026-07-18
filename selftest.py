@@ -235,6 +235,32 @@ def main() -> None:
     print("===== text preview (zine, page 1) " + "=" * 31)
     print(strip_pre(text))
 
+    # oracle: ask -> forecast (crowd hidden first) -> resolve -> scores
+    assert "oracle" in DOORS
+    bbs._door_screen(user, "oracle", "new")
+    text, _ = bbs._door_screen(
+        user, "oracle", "text:will the tower hit 10 users by friday?")
+    assert "deadline" in text
+    text, _ = bbs._door_screen(user, "oracle", "horizon:7")
+    assert "question is live" in text
+    text, _ = bbs._door_screen(sysop, "oracle", "q:1")
+    assert "crowd hidden" in text                      # no anchoring
+    text, _ = bbs._door_screen(sysop, "oracle", "fc:1:90")
+    assert "logged: 90%" in text and "the crowd" in text
+    bbs._door_screen(user, "oracle", "q:1")
+    text, _ = bbs._door_screen(user, "oracle", "text:20")  # typed digits
+    assert "logged: 20%" in text
+    bal_s = db.credits(1)
+    text, _ = bbs._door_screen(user, "oracle", "resolve:1:1")
+    assert "resolved YES" in text and "2 oracles scored" in text
+    st_s = _json.loads(db.door_state(1, "oracle"))
+    st_u = _json.loads(db.door_state(2, "oracle"))
+    assert st_s["rating"] == 24 and st_u["rating"] == -39  # brier math
+    assert db.credits(1) == bal_s + 24                 # winner paid
+    text, _ = bbs._door_screen(user, "oracle", "top")
+    assert "st0rmlord" in text
+    print("oracle OK: brier scoring round-tripped")
+
     # QWK export: real binary format, pointer advance
     from tgbbs.qwk import build_qwk
     db.mark_all_read(uid, user["level"])

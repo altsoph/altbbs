@@ -63,6 +63,15 @@ class DoorAPI:
             (self._key,)).fetchall()
         return [(r["handle"], json.loads(r["state"])) for r in rows]
 
+    def states_full(self) -> list[tuple[int, str, dict]]:
+        """(user_id, handle, state) -- for doors that need to pay users."""
+        rows = self._db.conn.execute(
+            "SELECT ds.user_id, u.handle, ds.state FROM door_state ds "
+            "JOIN users u ON u.id=ds.user_id WHERE ds.door=?",
+            (self._key,)).fetchall()
+        return [(r["user_id"], r["handle"], json.loads(r["state"]))
+                for r in rows]
+
 
 def _load_doors() -> dict:
     doors = {}

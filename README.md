@@ -65,7 +65,7 @@ copy .env.example .env      # then paste your token from @BotFather
   `[N]` next, `[S]` skip base, `[R]` reply, `[A]` mark all read.
 - **Door games** (`[D]`): drop-in turn-based modules with persistent
   state and a board-wide credit economy (earn +5/call, +2/post,
-  +25/upload). Ships with five doors: **HI-LO CASINO** (ties feed
+  +25/upload). Ships with six doors: **HI-LO CASINO** (ties feed
   the house), the **ONE-ARMED BANDIT** (777 pays 100x), **THE
   DRAGON'S TOWER** (LORD-style daily-turns dungeon — 8 fights a day,
   level up, heal for credits, hall of fame, and a RED DRAGON on the
@@ -74,8 +74,13 @@ copy .env.example .env      # then paste your token from @BotFather
   the sysop's own telegram port): one persistent Enterprise per
   caller, an 8×8 galaxy of 8×8 sectors, starbase docking, phasers,
   aimed torpedoes, and a Starfleet hall of fame. Victory pays 100
-  credits. Write your own door in ~50 lines: see
-  `tgbbs/doors/__init__.py`.
+  credits. Plus **THE ORACLE** — a metaculus-style prediction
+  exchange: open YES/NO questions with deadlines, forecast
+  probabilities (the crowd number stays hidden until you commit your
+  own), author-or-sysop resolution, Brier scoring (+25 for a
+  confident right call, −75 for a confident wrong one, 50% = 0),
+  positive points pay credits, and a calibration leaderboard. Write
+  your own door in ~50 lines: see `tgbbs/doors/__init__.py`.
 - **Chat pit** (`[C]`): live multi-node chat. Everyone currently in the
   pit sees new lines appear on their terminal in real time; joins and
   leaves are announced. The main menu shows how many are chatting.
