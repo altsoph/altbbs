@@ -206,6 +206,26 @@ def main() -> None:
     print("===== text preview (zine, page 1) " + "=" * 31)
     print(strip_pre(text))
 
+    # web terminal: initData validation + screen serialization (offline)
+    import hashlib
+    import hmac as _hm
+    import time as _t
+    from urllib.parse import urlencode
+
+    from tgbbs.handlers import web_payload
+    from tgbbs.webterm import validate_init_data
+    tok = "1:X"
+    fields = {"auth_date": str(int(_t.time())),
+              "user": _json.dumps({"id": 9})}
+    chk = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
+    sec = _hm.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+    fields["hash"] = _hm.new(sec, chk.encode(), hashlib.sha256).hexdigest()
+    assert validate_init_data(urlencode(fields), tok) == 9
+    assert validate_init_data(urlencode(fields), "2:Y") is None
+    pl = web_payload(*bbs.scr_main(sysop))
+    assert pl["screen"].startswith("<pre>") and pl["buttons"]
+    assert all(b["data"] for row in pl["buttons"] for b in row)
+
     print("ALL SELFTESTS PASSED")
 
 

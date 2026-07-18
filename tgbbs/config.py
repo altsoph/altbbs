@@ -38,6 +38,11 @@ class Config:
     feed_hn_min_score: int = 100
     feed_opml: str = ""           # OPML path; empty = first *.opml in repo root
     feed_max_age_days: int = 45   # ignore OPML feed entries older than this
+    # CRT web terminal (Mini App)
+    web_url: str = ""             # public https URL of the tunnel
+    web_port: int = 8737          # local bind port (127.0.0.1 only)
+    web_enabled: bool = False
+    web_dev: bool = False         # auth bypass for the local test rig
 
     @classmethod
     def load(cls) -> "Config":
@@ -53,6 +58,11 @@ class Config:
             feed_hn_min_score=int(os.environ.get("BBS_FEED_HN_MIN_SCORE", "100")),
             feed_opml=os.environ.get("BBS_FEED_OPML", ""),
             feed_max_age_days=int(os.environ.get("BBS_FEED_MAX_AGE_DAYS", "45")),
+            web_url=os.environ.get("BBS_WEB_URL", ""),
+            web_port=int(os.environ.get("BBS_WEB_PORT", "8737")),
+            web_dev=os.environ.get("BBS_WEB_DEV", "") == "1",
         )
+        web = os.environ.get("BBS_WEB", "auto").lower()
+        cfg.web_enabled = web == "on" or (web != "off" and bool(cfg.web_url))
         cfg.db_path.parent.mkdir(parents=True, exist_ok=True)
         return cfg

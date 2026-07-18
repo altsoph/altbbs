@@ -148,6 +148,27 @@ Imports run 30 s after boot and then every `BBS_FEED_INTERVAL_MIN`
 per run. Sysops can trigger a run any time with `/fetchnews`, or turn
 the whole thing off with `BBS_FEED=off`.
 
+## CRT web terminal (Mini App)
+
+The board has a second face: a phosphor-green CRT terminal that opens
+inside Telegram as a Mini App — scanlines, glow, flicker, `NO CARRIER`
+on disconnect. It drives the *same* sessions as the chat UI: hotkeys,
+posting, mail, newscan, doors and the chat pit (with live push) all
+work; downloads arrive in your Telegram chat.
+
+Setup (keeps the no-open-ports story — the tunnel is outbound-only):
+
+1. The bot serves the terminal on `127.0.0.1:8737` (never exposed).
+2. `cloudflared tunnel --url http://localhost:8737` — prints a random
+   `https://….trycloudflare.com` URL.
+3. Put it in `.env` as `BBS_WEB_URL=…` and restart the bot.
+4. A `[W] CRT TERMINAL` button appears on the main menu.
+
+Security: the page authenticates with Telegram-signed `initData`
+(HMAC over the bot token), so a caller can only ever be their own BBS
+user; stale signatures (>24 h) are rejected. Quick-tunnel URLs change
+on every cloudflared restart — use a named tunnel for a stable one.
+
 ## Development
 
 ```powershell
@@ -162,5 +183,4 @@ Code layout: `tgbbs/config.py` (env), `db.py` (SQLite schema + queries),
 ## Roadmap ideas
 
 - more doors (tradewars? inter-user duels?)
-- Mini App front-end with a real CRT terminal look
 - QWK-style export / federation between boards

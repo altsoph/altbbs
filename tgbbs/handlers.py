@@ -12,6 +12,7 @@ from telegram import (
     InlineKeyboardButton as Btn,
     InlineKeyboardMarkup as Kbd,
     Update,
+    WebAppInfo,
 )
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
@@ -35,6 +36,19 @@ nodelog = logging.getLogger("tgbbs.node")  # the classic sysop node log
 chatlog = logging.getLogger("tgbbs.chatlog")  # full transcript (file handler)
 
 HANDLE_RE = re.compile(r"^[a-zA-Z0-9._-]{2,16}$")
+
+
+def web_payload(text: str, kbd: Kbd | None) -> dict:
+    """Serialize a screen for the CRT web terminal."""
+    rows = []
+    if kbd:
+        for r in kbd.inline_keyboard:
+            row = [{"label": b.text, "data": b.callback_data}
+                   for b in r if b.callback_data]
+            if row:
+                rows.append(row)
+    return {"screen": text, "buttons": rows}
+
 MAX_BODY = 2000  # keep posts well under Telegram's 4096-char screen limit
 ONLINE_SECS = 300  # active within 5 min = online
 
@@ -70,6 +84,8 @@ class BBS:
         for row in kbd.inline_keyboard:
             for b in row:
                 label = b.text or ""
+                if not b.callback_data:
+                    continue  # web_app buttons have no hotkey action
                 m = re.match(r"\[(\w)\]", label)
                 if m:
                     keys[m.group(1).upper()] = b.callback_data
@@ -84,6 +100,11 @@ class BBS:
         """Edit the terminal message in place; fall back to sending a new one."""
         s = self.sess(update.effective_user.id)
         s["keys"] = self._hotkeys(kbd)  # typed hotkeys mirror this screen
+        if getattr(update, "is_web", False):
+            q = s.get("webq")
+            if q is not None:
+                q.put_nowait(web_payload(text, kbd))
+            return
         chat_id = update.effective_chat.id
         if update.callback_query and update.callback_query.message:
             try:
@@ -153,6 +174,9 @@ class BBS:
         ]
         if user["level"] >= 100:
             rows[-1].append(Btn("[S] SYSOP", callback_data="sysop"))
+        if self.cfg.web_url:
+            rows.append([Btn("[W] CRT TERMINAL",
+                             web_app=WebAppInfo(url=self.cfg.web_url))])
         rows.append([Btn("[G] LOGOFF", callback_data="logoff")])
         return screen("main menu", body, status_line(user), logo=True), Kbd(rows)
 
@@ -453,9 +477,14 @@ class BBS:
         for uid in self.chatters():
             s = self.sessions.get(uid)
             u = self.db.user(uid)
-            if not (s and u and s.get("term") and s.get("cid")):
+            if not (s and u):
                 continue
             text, kbd = self.scr_chat(u)
+            if s.get("webq") is not None:  # CRT terminal gets a live push
+                s["webq"].put_nowait(web_payload(text, kbd))
+                continue
+            if not (s.get("term") and s.get("cid")):
+                continue
             try:
                 await bot.edit_message_text(
                     text, chat_id=s["cid"], message_id=s["term"],
@@ -1197,6 +1226,10 @@ def build_app(cfg: Config) -> Application:
         if cfg.feed_enabled:
             from . import newsfeed
             application.create_task(newsfeed.feed_loop(db, cfg))
+        if cfg.web_enabled:
+            from . import webterm
+            application.create_task(
+                webterm.serve_forever(bbs, application.bot, cfg))
 
     app = Application.builder().token(cfg.token).post_init(_post_init).build()
     app.add_handler(CommandHandler("start", bbs.cmd_start))
