@@ -310,6 +310,8 @@ class BBS:
         top = [Btn("[D] DOWNLOAD", callback_data=f"get:{f['id']}")]
         if asciiview.is_image_name(f["name"]):
             top.append(Btn("[V] VIEW ASCII", callback_data=f"view:{f['id']}"))
+        elif asciiview.is_text_name(f["name"]):
+            top.append(Btn("[V] PREVIEW", callback_data=f"txt:{f['id']}:0"))
         rows = [top, [Btn("[Q] BACK", callback_data=f"area:{f['area_id']}:0")]]
         return screen("file info", body, status_line(user)), Kbd(rows)
 
@@ -434,6 +436,53 @@ class BBS:
             body.append(("-- " + o["handle"]).rjust(30))
         rows = [[Btn("[R] RECONNECT", callback_data="reconnect")]]
         return screen("carrier lost", body, ""), Kbd(rows)
+
+    def scr_text(self, user, f, lines: list[str], page: int):
+        ps = 24
+        pages = max(1, -(-len(lines) // ps))
+        page = max(0, min(page, pages - 1))
+        body = [f"  {trunc(f['name'], 22)} · pg {page + 1}/{pages}",
+                " " + "·" * 30]
+        body += [f" {l}" for l in lines[page * ps:(page + 1) * ps]] or \
+                ["  (empty file)"]
+        nav = []
+        if page > 0:
+            nav.append(Btn("« PREV", callback_data=f"txt:{f['id']}:{page-1}"))
+        if page + 1 < pages:
+            nav.append(Btn("NEXT »", callback_data=f"txt:{f['id']}:{page+1}"))
+        rows = ([nav] if nav else []) + \
+            [[Btn("[Q] BACK", callback_data=f"file:{f['id']}")]]
+        return screen("text viewer", body, status_line(user)), Kbd(rows)
+
+    async def _preview_file(self, ctx, user, file_id: int, page: int):
+        """Paged text preview of a file-area file."""
+        f = self.db.file(file_id)
+        if not f:
+            return self.scr_areas(user)
+        a = self.db.area(f["area_id"])
+        if a["min_level"] > user["level"]:
+            return self.scr_areas(user)
+        s = self.sess(user["id"])
+        cached = s.get("preview")
+        if not cached or cached[0] != file_id:
+            src = f["tg_file_id"]
+            try:
+                if src.startswith("local:"):
+                    data = (FILES_DIR / Path(src[6:]).name).read_bytes()
+                else:
+                    if (f["size"] or 0) > asciiview.MAX_BYTES:
+                        return self.scr_text(user, f, ["too big to preview"], 0)
+                    tg_file = await ctx.bot.get_file(src)
+                    data = bytes(await tg_file.download_as_bytearray())
+                lines = asciiview.text_to_lines(data)
+                nodelog.info("%s previewed #%s %s",
+                             user["handle"], f["id"], f["name"])
+            except Exception as e:
+                log.warning("preview of #%s failed: %s", file_id, e)
+                lines = ["could not read that file."]
+            s["preview"] = (file_id, lines)
+            cached = s["preview"]
+        return self.scr_text(user, f, cached[1], page)
 
     async def _view_file(self, update, ctx, user, file_id: int):
         """Render a file-area image as ASCII art."""
@@ -657,6 +706,9 @@ class BBS:
                 out = self.scr_file(user, int(args[0]))
             elif cmd == "view":
                 out = await self._view_file(update, ctx, user, int(args[0]))
+            elif cmd == "txt":
+                out = await self._preview_file(ctx, user,
+                                               int(args[0]), int(args[1]))
             elif cmd == "chat":
                 if not s.get("chat"):
                     s["chat"] = True

@@ -94,6 +94,19 @@ def main() -> None:
     text, _ = bbs.scr_ascii(user, lines, "gradient.png", "menu")
     print(strip_pre(text))
 
+    # text preview: page through the bundled zine
+    from tgbbs.asciiview import text_to_lines
+    from tgbbs.config import FILES_DIR
+    zdata = (FILES_DIR / "RAW_SYNAPSE-001.TXT").read_bytes()
+    zid = db.add_file(2, 2, "local:RAW_SYNAPSE-001.TXT",
+                      "RAW_SYNAPSE-001.TXT", len(zdata))
+    zlines = text_to_lines(zdata)
+    assert zlines and max(len(l) for l in zlines) <= 33
+    text, _ = bbs.scr_text(user, db.file(zid), zlines, 0)
+    assert len(text) < 4096
+    print("===== text preview (zine, page 1) " + "=" * 31)
+    print(strip_pre(text))
+
     print("ALL SELFTESTS PASSED")
 
 
