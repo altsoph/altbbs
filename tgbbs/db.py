@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS files (
     created     INTEGER NOT NULL,
     downloads   INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS scan_ptr (
+    user_id    INTEGER NOT NULL,
+    board_id   INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL DEFAULT 0,  -- highest message id read
+    PRIMARY KEY (user_id, board_id)
+);
 CREATE TABLE IF NOT EXISTS feed_seen (
     key        TEXT PRIMARY KEY,             -- normalized url
     source     TEXT NOT NULL,
@@ -205,6 +211,43 @@ class DB:
             "VALUES (?,?,?,?,?)", (board_id, author_id, reply_to, body, now()))
         self.conn.commit()
         return cur.lastrowid
+
+    # -- newscan --------------------------------------------------------------
+    def _ptr(self, uid: int, board_id: int) -> int:
+        r = self.conn.execute(
+            "SELECT last_seen FROM scan_ptr WHERE user_id=? AND board_id=?",
+            (uid, board_id)).fetchone()
+        return r["last_seen"] if r else 0
+
+    def set_ptr(self, uid: int, board_id: int, msg_id: int) -> None:
+        self.conn.execute(
+            "INSERT INTO scan_ptr(user_id, board_id, last_seen) VALUES (?,?,?) "
+            "ON CONFLICT(user_id, board_id) DO UPDATE SET "
+            "last_seen=MAX(last_seen, excluded.last_seen)",
+            (uid, board_id, msg_id))
+        self.conn.commit()
+
+    def next_unread(self, uid: int, board_id: int):
+        return self.conn.execute(
+            "SELECT m.*, u.handle FROM messages m JOIN users u ON u.id=m.author_id "
+            "WHERE m.board_id=? AND m.id>? ORDER BY m.id LIMIT 1",
+            (board_id, self._ptr(uid, board_id))).fetchone()
+
+    def unread_count(self, uid: int, board_id: int) -> int:
+        return self.conn.execute(
+            "SELECT COUNT(*) c FROM messages WHERE board_id=? AND id>?",
+            (board_id, self._ptr(uid, board_id))).fetchone()["c"]
+
+    def total_unread(self, uid: int, level: int) -> int:
+        return sum(self.unread_count(uid, b["id"]) for b in self.boards(level))
+
+    def mark_all_read(self, uid: int, level: int) -> None:
+        for b in self.boards(level):
+            top = self.conn.execute(
+                "SELECT MAX(id) m FROM messages WHERE board_id=?",
+                (b["id"],)).fetchone()["m"]
+            if top:
+                self.set_ptr(uid, b["id"], top)
 
     # -- mail ---------------------------------------------------------------
     def inbox(self, user_id: int, limit: int, offset: int):

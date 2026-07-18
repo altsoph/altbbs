@@ -137,14 +137,17 @@ class BBS:
         mail_label = f"[E] MAIL ({unread})" if unread else "[E] MAIL"
         n_chat = len(self.chatters())
         chat_label = f"[C] CHAT ({n_chat})" if n_chat else "[C] CHAT"
+        n_new = self.db.total_unread(user["id"], user["level"])
+        scan_label = f"[N] NEWSCAN ({n_new})" if n_new else "[N] NEWSCAN"
         rows = [
-            [Btn("[M] MSG BASES", callback_data="boards"),
-             Btn(mail_label, callback_data="mail:0")],
-            [Btn("[F] FILE AREAS", callback_data="areas"),
-             Btn("[O] ONELINERS", callback_data="ones")],
-            [Btn(chat_label, callback_data="chat"),
-             Btn("[L] LAST CALLERS", callback_data="who")],
-            [Btn("[U] USER LIST", callback_data="users:0")],
+            [Btn(scan_label, callback_data="scan"),
+             Btn("[M] MSG BASES", callback_data="boards")],
+            [Btn(mail_label, callback_data="mail:0"),
+             Btn("[F] FILE AREAS", callback_data="areas")],
+            [Btn("[O] ONELINERS", callback_data="ones"),
+             Btn(chat_label, callback_data="chat")],
+            [Btn("[L] LAST CALLERS", callback_data="who"),
+             Btn("[U] USER LIST", callback_data="users:0")],
         ]
         if user["level"] >= 100:
             rows[-1].append(Btn("[S] SYSOP", callback_data="sysop"))
@@ -221,6 +224,47 @@ class BBS:
         rows.append([Btn("[R] REPLY", callback_data=f"reply:{m['id']}"),
                      Btn("[Q] BACK", callback_data=f"board:{m['board_id']}:0")])
         return screen("read message", body, status_line(user)), Kbd(rows)
+
+    # -- newscan: the unread-message loop -----------------------------------
+    def _scan_next(self, user):
+        """Advance to the next unread message across all visible boards."""
+        for b in self.db.boards(user["level"]):
+            m = self.db.next_unread(user["id"], b["id"])
+            if m:
+                self.db.set_ptr(user["id"], b["id"], m["id"])
+                left = self.db.unread_count(user["id"], b["id"])
+                return self.scr_scan_msg(user, b, m, left)
+        return self.scr_scan_done(user)
+
+    def scr_scan_msg(self, user, b, m, left: int):
+        body = [
+            f"  base : {trunc(b['name'], 16)} ({left} new)",
+            f"  from : {m['handle']}",
+            f"  date : {ts(m['created'])}",
+        ]
+        if m["reply_to"]:
+            body.append(f"  re   : #{m['reply_to']}")
+        body.append(" " + "·" * 30)
+        body += wrap(m["body"], prefix=" ")[:36]
+        rows = [
+            [Btn("[N] NEXT", callback_data="scan"),
+             Btn("[S] SKIP BASE", callback_data=f"scanskip:{b['id']}")],
+            [Btn("[R] REPLY", callback_data=f"reply:{m['id']}"),
+             Btn("[A] ALL READ", callback_data="scanall")],
+            [Btn("[Q] STOP", callback_data="menu")],
+        ]
+        return screen("newscan", body, status_line(user)), Kbd(rows)
+
+    def scr_scan_done(self, user):
+        body = [
+            "  ▄▄▄ newscan complete ▄▄▄",
+            "",
+            "  no new messages anywhere.",
+            "  you are fully synchronized",
+            "  with the tower.",
+        ]
+        rows = [[Btn("[Q] MENU", callback_data="menu")]]
+        return screen("newscan", body, status_line(user)), Kbd(rows)
 
     def scr_input(self, user, title: str, prompt_lines: list[str], back: str):
         body = prompt_lines + ["", "  (or hit ABORT below)", "  █"]
@@ -722,6 +766,21 @@ class BBS:
                 # coming back from the logoff screen counts as a new call
                 self.db.touch_call(user["id"])
                 user = self.db.user(user["id"])
+                out = self.scr_main(user)
+            elif cmd == "scan":
+                out = self._scan_next(user)
+            elif cmd == "scanskip":
+                b = self.db.board(int(args[0]))
+                if b:
+                    top = self.db.conn.execute(
+                        "SELECT MAX(id) m FROM messages WHERE board_id=?",
+                        (b["id"],)).fetchone()["m"]
+                    if top:
+                        self.db.set_ptr(user["id"], b["id"], top)
+                out = self._scan_next(user)
+            elif cmd == "scanall":
+                self.db.mark_all_read(user["id"], user["level"])
+                nodelog.info("%s marked all read", user["handle"])
                 out = self.scr_main(user)
             elif cmd == "boards":
                 out = self.scr_boards(user)

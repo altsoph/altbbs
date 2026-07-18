@@ -60,6 +60,10 @@ copy .env.example .env      # then paste your token from @BotFather
   it lands in that area; you'll be asked for a FILE_ID.DIZ description.
   `[D] DOWNLOAD` sends it back to any caller. (Bot API: up to ~50 MB
   per file, plenty for art packs and intros.)
+- **Newscan** (`[N]`): the classic unread-message loop. Per-user scan
+  pointers per board; the menu badge shows how much is waiting, and
+  the loop steps through every new message across all your boards —
+  `[N]` next, `[S]` skip base, `[R]` reply, `[A]` mark all read.
 - **Chat pit** (`[C]`): live multi-node chat. Everyone currently in the
   pit sees new lines appear on their terminal in real time; joins and
   leaves are announced. The main menu shows how many are chatting.
@@ -148,7 +152,6 @@ Code layout: `tgbbs/config.py` (env), `db.py` (SQLite schema + queries),
 
 ## Roadmap ideas
 
-- newscan (unread-message loop with per-user scan pointers)
 - door games API (simple turn-based modules)
 - Mini App front-end with a real CRT terminal look
 - QWK-style export / federation between boards

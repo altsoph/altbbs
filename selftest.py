@@ -96,6 +96,24 @@ def main() -> None:
     db.delete_file(tmp_fid)
     assert db.file(tmp_fid) is None
 
+    # newscan: pointers advance, counts drop, done-screen at the end
+    uid = user["id"]
+    total0 = db.total_unread(uid, user["level"])
+    assert total0 == 2, total0  # both posts in main hall are unread
+    text, kbd = bbs._scan_next(user)
+    assert "NEWSCAN" in text and "1 new" in text
+    text, _ = bbs._scan_next(user)
+    assert "0 new" in text
+    text, _ = bbs._scan_next(user)
+    assert "newscan complete" in text
+    assert db.total_unread(uid, user["level"]) == 0
+    db.post(2, 1, "fresh demoscene drop")
+    assert db.total_unread(uid, user["level"]) == 1
+    db.mark_all_read(uid, user["level"])
+    assert db.total_unread(uid, user["level"]) == 0
+    text, _ = bbs.scr_main(user)  # badge gone when nothing unread
+    assert "NEWSCAN (" not in str(bbs.scr_main(user)[1].inline_keyboard[0][0].text)
+
     # typed hotkeys mirror the buttons of the current screen
     _, kbd = bbs.scr_main(sysop)
     keys = bbs._hotkeys(kbd)
