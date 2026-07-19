@@ -1362,16 +1362,26 @@ def build_app(cfg: Config) -> Application:
     db = DB(cfg.db_path)
     bbs = BBS(cfg, db)
 
+    bg_tasks: list[asyncio.Task] = []
+
     async def _post_init(application: Application) -> None:
+        # post_init runs before Application.start(), so application.create_task
+        # would warn and the tasks would never be awaited; manage them ourselves.
         if cfg.feed_enabled:
             from . import newsfeed
-            application.create_task(newsfeed.feed_loop(db, cfg))
+            bg_tasks.append(asyncio.create_task(newsfeed.feed_loop(db, cfg)))
         if cfg.web_enabled:
             from . import webterm
-            application.create_task(
-                webterm.serve_forever(bbs, application.bot, cfg))
+            bg_tasks.append(asyncio.create_task(
+                webterm.serve_forever(bbs, application.bot, cfg)))
 
-    app = Application.builder().token(cfg.token).post_init(_post_init).build()
+    async def _post_shutdown(application: Application) -> None:
+        for t in bg_tasks:
+            t.cancel()
+        await asyncio.gather(*bg_tasks, return_exceptions=True)
+
+    app = (Application.builder().token(cfg.token)
+           .post_init(_post_init).post_shutdown(_post_shutdown).build())
     app.add_handler(CommandHandler("start", bbs.cmd_start))
     app.add_handler(CommandHandler("help", bbs.cmd_help))
     app.add_handler(CommandHandler("menu", bbs.cmd_menu))
